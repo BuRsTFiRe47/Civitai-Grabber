@@ -46,11 +46,20 @@ Klasörü olmayan linkleri başlatırsan varsayılan bir klasör sorulur.
 2. Birkaç dakika bekleyip satırı tekrar başlat.
 3. Hâlâ olmuyorsa: tarayıcıda Civitai'yi aç → geliştirici araçlarından `cf_clearance` çerezini ve tarayıcının User-Agent'ını kopyala → Ayarlar → Gelişmiş'e yapıştır. (Çerez IP ve User-Agent'a bağlıdır, süresi dolunca yenilenmelidir.)
 
+## Ayarlar nerede saklanır?
+
+Taşınabilir: ayarlar, liste, gruplar ve günlük **exe'nin yanındaki `config` klasöründe** durur (`config/settings.json`, `config/state.json`, `config/logs/`). Klasörü kopyalayarak uygulamayı başka yere taşıyabilirsin. Ayarlar penceresinin altında klasörün yolu yazar.
+
+- **Eski sürümden geçiş:** önceki sürümler verileri `%APPDATA%\CivitaiGrabber\` (Linux: `~/.config/civitai-grabber/`) altında tutuyordu. Yeni sürüm ilk açılışta, `config` klasöründe henüz veri yoksa, oradaki `settings.json`, `state.json` ve `logs` klasörünü **exe'nin yanına taşır**, kopyaları doğruladıktan sonra eski klasörü siler. Tanımadığı bir dosya varsa o dosyaya ve klasöre dokunmaz. Taşıma hata verirse eski veri olduğu gibi kalır ve bir sonraki açılışta tekrar denenir. Yapılanlar günlüğe yazılır.
+- `config` klasörü zaten doluysa eski klasöre dokunulmaz.
+- Exe klasörüne yazılamıyorsa (ör. `Program Files`) eski konum kullanılmaya devam eder.
+- `CIVITAI_GRABBER_HOME` ortam değişkeni her şeyi geçersiz kılar ve başka bir klasör seçmeni sağlar.
+
 ## Bilinen sınırlar
 
 - Test ortamında canlı Civitai'ye erişim yoktu: indirme, devam etme, hata ayrımı ve API çözümleme **yerel sahte bir Civitai/Cloudflare sunucusuna karşı** otomatik testlerle (`pytest`) doğrulandı. Gerçek Civitai/Cloudflare davranışı farklı olabilir; sorun görürsen hata metniyle bir *issue* aç.
 - Sürüm başına **tek dosya** indirilir (filtreye göre seçilir; ek dosyalar/önizleme görselleri indirilmez). Filtreyi değiştirince eski satırlara uygulamak için sağ tık → *Yeniden çözümle*.
-- API anahtarı ve çerez ayar dosyasında düz metin saklanır (`%APPDATA%\CivitaiGrabber\` / `~/.config/civitai-grabber/`).
+- API anahtarı ve çerez `config/settings.json` içinde düz metin saklanır; bu dosyayı paylaşma, GitHub'a yükleme (`config/` zaten `.gitignore`'da).
 - Listeden kaldırılan, yarım kalmış `.part` dosyaları silinir.
 
 ## GitHub'da derleme (kendi bilgisayarında derlemeden)
@@ -124,11 +133,20 @@ If you start links that have no folder, you are asked for a default folder.
 2. Wait a few minutes and start the row again.
 3. Still blocked: open Civitai in your browser, copy the `cf_clearance` cookie and the browser's User-Agent from the dev tools, and paste them into Settings → Advanced. (The cookie is bound to your IP and User-Agent and expires.)
 
+### Where settings are stored
+
+Portable: settings, list, groups and the log live **in a `config` folder next to the exe** (`config/settings.json`, `config/state.json`, `config/logs/`). Copy the folder to move the app elsewhere. The Settings window shows the folder path at the bottom.
+
+- **Migration from older versions:** earlier versions kept data under `%APPDATA%\CivitaiGrabber\` (Linux: `~/.config/civitai-grabber/`). On first start, if `config` has no data yet, the new version **moves** `settings.json`, `state.json` and `logs` from there **next to the exe**, verifies the copies and then deletes the old folder. If it finds a file it does not know, it leaves that file and the folder alone. If the move fails the old data stays untouched and it is retried on the next start. Everything is written to the log.
+- If `config` already has data the old folder is not touched.
+- If the exe folder is not writable (e.g. `Program Files`) the old location keeps being used.
+- The `CIVITAI_GRABBER_HOME` environment variable overrides everything and lets you pick another folder.
+
 ### Known limitations
 
 - The build environment had no access to live Civitai: downloading, resuming, error classification and API resolving were verified by automated tests (`pytest`) **against a local fake Civitai/Cloudflare server**. Real Civitai/Cloudflare behaviour may differ; if you hit a problem, open an *issue* with the error text.
 - One **file per version** is downloaded (chosen by the filter; no extra files / preview images). After changing the filter, use right-click → *Resolve again* on existing rows.
-- The API key and cookie are stored as plain text in the settings file (`%APPDATA%\CivitaiGrabber\` / `~/.config/civitai-grabber/`).
+- The API key and cookie are stored as plain text in `config/settings.json`; do not share it or upload it to GitHub (`config/` is already in `.gitignore`).
 - Removing an unfinished item from the list deletes its `.part` file.
 
 ### Building on GitHub (instead of on your own PC)

@@ -598,7 +598,7 @@ class MainWindow(QMainWindow):
     # ------------------------------------------------------------------ settings / status
     def _open_settings(self):
         old = self.engine.settings
-        dlg = SettingsDialog(old, self)
+        dlg = SettingsDialog(old, self, str(self.engine.storage.base))
         if not dlg.exec():
             return
         new = dlg.value()

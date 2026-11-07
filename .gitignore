@@ -10,3 +10,4 @@ dist/
 *.part
 .idea/
 .vscode/
+config/

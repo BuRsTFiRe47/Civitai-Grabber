@@ -191,7 +191,7 @@ class AssignGroupDialog(QDialog):
 
 # --------------------------------------------------------------------------- settings
 class SettingsDialog(QDialog):
-    def __init__(self, settings: Settings, parent=None):
+    def __init__(self, settings: Settings, parent=None, config_path: str = ""):
         super().__init__(parent)
         self.s = settings
         self.setWindowTitle(t("dlg.settings_title"))
@@ -299,6 +299,11 @@ class SettingsDialog(QDialog):
         about.setProperty("muted", True)
         about.setTextInteractionFlags(Qt.TextBrowserInteraction)
         lay.addWidget(about)
+        if config_path:
+            cp = QLabel(f"{t('lbl.config_dir')}: {config_path}")
+            cp.setProperty("muted", True)
+            cp.setTextInteractionFlags(Qt.TextSelectableByMouse)
+            lay.addWidget(cp)
         lay.addWidget(_buttons(self))
 
     def value(self) -> Settings:

@@ -11,8 +11,8 @@ from PySide6.QtWidgets import QApplication
 from civitai_grabber import APP_NAME, __version__
 from civitai_grabber.core.logsetup import setup_logging
 from civitai_grabber.core.engine import Engine
-from civitai_grabber.core.storage import Storage
-from civitai_grabber.i18n import set_language
+from civitai_grabber.core.storage import LAST_MIGRATION, Storage
+from civitai_grabber.i18n import set_language, t
 from civitai_grabber.ui import theme
 from civitai_grabber.ui.main_window import MainWindow
 
@@ -34,6 +34,21 @@ def _hook_exceptions(log: logging.Logger) -> None:
     threading.excepthook = thread_hook
 
 
+def _report_migration(log: logging.Logger) -> bool:
+    """Write what config_dir() did (import from the old folder / fallback) to the log."""
+    m = LAST_MIGRATION
+    if m.get("fallback"):
+        log.warning(t("log.config_fallback", target=m.get("target", ""), path=m["fallback"]))
+    if m.get("error"):
+        log.error(t("log.migrate_failed", err=m["error"], src=m.get("source", "")))
+    if m.get("moved"):
+        log.info(t("log.migrated", src=m["source"], dst=m["target"], moved=", ".join(m["moved"])))
+        if m.get("left"):
+            log.warning(t("log.migrated_left", left=", ".join(m["left"])))
+        return not m.get("left")
+    return False
+
+
 def main(argv: list[str] | None = None) -> int:
     app = QApplication(argv if argv is not None else sys.argv)
     app.setApplicationName(APP_NAME)
@@ -46,11 +61,14 @@ def main(argv: list[str] | None = None) -> int:
     _hook_exceptions(log)
     settings = storage.load_settings()
     set_language(settings.language)
+    migrated = _report_migration(log)
     theme.apply_theme(app, settings.theme)  # dark unless the user changed it
 
     engine = Engine(storage, settings)
     win = MainWindow(engine, log_buffer)
     win.show()
+    if migrated:
+        win.statusBar().showMessage(t("msg.migrated"), 15000)
     engine.begin()
     return app.exec()
 

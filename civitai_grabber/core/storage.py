@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import json
 import os
+import shutil
 import sys
 import tempfile
 from dataclasses import asdict, dataclass, fields
@@ -11,18 +12,122 @@ from pathlib import Path
 from civitai_grabber.core.models import Group, Item
 
 
+APP_DIR = "CivitaiGrabber"
+_MIGRATE_FILES = ("settings.json", "state.json")
+
+# Filled by config_dir(); the app reads it once to tell the user what happened.
+# keys: source, target, moved (list), left (list), error, fallback
+LAST_MIGRATION: dict = {}
+
+
+def legacy_dir() -> Path:
+    """Where versions before the portable mode kept their data (per-user app-data folder)."""
+    if sys.platform == "win32":
+        return Path(os.environ.get("APPDATA", Path.home() / "AppData" / "Roaming")) / APP_DIR
+    if sys.platform == "darwin":
+        return Path.home() / "Library" / "Application Support" / APP_DIR
+    return Path(os.environ.get("XDG_CONFIG_HOME", Path.home() / ".config")) / "civitai-grabber"
+
+
+def portable_dir() -> Path:
+    """`config` folder next to the exe (frozen build) or next to main.py (running from source)."""
+    if getattr(sys, "frozen", False):
+        base = Path(sys.executable).resolve().parent
+    else:
+        base = Path(__file__).resolve().parents[2]
+    return base / "config"
+
+
+def _writable(p: Path) -> bool:
+    try:
+        p.mkdir(parents=True, exist_ok=True)
+        probe = p / f".write-test-{os.getpid()}"
+        probe.write_text("x", encoding="utf-8")
+        probe.unlink()
+        return True
+    except OSError:
+        return False
+
+
+def migrate_legacy(legacy: Path, target: Path) -> dict:
+    """Move settings/state/logs from the old app-data folder into `target`, then clean up.
+
+    Safe by construction: nothing is moved if `target` already has data; files are copied and
+    verified first, the old ones are deleted only afterwards, and only files we know about are
+    deleted (an unknown file keeps the old folder alive). On any error the old data stays intact
+    and the partial copy is removed.
+    """
+    res: dict = {"source": str(legacy), "target": str(target), "moved": [], "left": [], "error": ""}
+    try:
+        if not legacy.is_dir() or legacy.resolve() == target.resolve():
+            return {}
+        if any((target / n).exists() for n in _MIGRATE_FILES):
+            return {}
+        names = [n for n in _MIGRATE_FILES if (legacy / n).is_file()]
+        has_logs = (legacy / "logs").is_dir()
+        if not names and not has_logs:
+            return {}
+    except OSError:
+        return {}
+
+    copied: list[Path] = []
+    try:
+        target.mkdir(parents=True, exist_ok=True)
+        for n in names:
+            shutil.copy2(legacy / n, target / n)
+            copied.append(target / n)
+            if (target / n).stat().st_size != (legacy / n).stat().st_size:
+                raise OSError(f"size mismatch after copying {n}")
+        if has_logs:
+            shutil.copytree(legacy / "logs", target / "logs", dirs_exist_ok=True)
+    except (OSError, shutil.Error) as e:
+        for c in copied:  # undo: leave the old data as the single source of truth
+            try:
+                c.unlink()
+            except OSError:
+                pass
+        res["error"] = str(e)
+        return res
+
+    # copies verified -> clean up the old location (known files only)
+    for n in names:
+        try:
+            (legacy / n).unlink()
+            res["moved"].append(n)
+        except OSError:
+            res["left"].append(n)
+    if has_logs:
+        shutil.rmtree(legacy / "logs", ignore_errors=True)
+        res["moved"].append("logs")
+        if (legacy / "logs").exists():
+            res["left"].append("logs")
+    try:
+        legacy.rmdir()  # only succeeds when empty
+    except OSError:
+        res["left"] += [x.name for x in legacy.iterdir() if x.name not in res["left"]] if legacy.exists() else []
+    return res
+
+
 def config_dir() -> Path:
+    """Portable `config` folder next to the exe; imports data from the old app-data folder once.
+
+    CIVITAI_GRABBER_HOME overrides everything. If the exe folder is not writable
+    (e.g. installed under Program Files) the old app-data folder keeps being used.
+    """
+    LAST_MIGRATION.clear()
     override = os.environ.get("CIVITAI_GRABBER_HOME")
     if override:
         p = Path(override)
-    elif sys.platform == "win32":
-        p = Path(os.environ.get("APPDATA", Path.home() / "AppData" / "Roaming")) / "CivitaiGrabber"
-    elif sys.platform == "darwin":
-        p = Path.home() / "Library" / "Application Support" / "CivitaiGrabber"
-    else:
-        p = Path(os.environ.get("XDG_CONFIG_HOME", Path.home() / ".config")) / "civitai-grabber"
-    p.mkdir(parents=True, exist_ok=True)
-    return p
+        p.mkdir(parents=True, exist_ok=True)
+        return p
+    target = portable_dir()
+    if not _writable(target):
+        legacy = legacy_dir()
+        legacy.mkdir(parents=True, exist_ok=True)
+        LAST_MIGRATION.update(fallback=str(legacy), target=str(target))
+        return legacy
+    LAST_MIGRATION.update(migrate_legacy(legacy_dir(), target))
+    return target
 
 
 DEFAULT_UA = (
