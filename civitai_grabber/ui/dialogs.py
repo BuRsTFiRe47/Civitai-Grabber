@@ -5,7 +5,7 @@ import dataclasses
 from pathlib import Path
 from typing import Optional
 
-from PySide6.QtCore import Qt
+from PySide6.QtCore import Qt, QTimer
 from PySide6.QtWidgets import (
     QCheckBox,
     QComboBox,
@@ -267,6 +267,16 @@ class SettingsDialog(QDialog):
         eh.setProperty("muted", True)
         eh.setWordWrap(True)
         f2.addRow("", eh)
+        self.skip = QCheckBox(t("lbl.skip_existing"))
+        self.skip.setChecked(settings.skip_existing)
+        f2.addRow("", self.skip)
+        self.stopcf = QCheckBox(t("lbl.stop_on_cf"))
+        self.stopcf.setChecked(settings.stop_on_cloudflare)
+        f2.addRow("", self.stopcf)
+        sh = QLabel(t("hint.cf_queue"))
+        sh.setProperty("muted", True)
+        sh.setWordWrap(True)
+        f2.addRow("", sh)
         self.verify = QCheckBox(t("lbl.verify"))
         self.verify.setChecked(settings.verify_sha256)
         f2.addRow("", self.verify)
@@ -320,6 +330,53 @@ class SettingsDialog(QDialog):
             retries=self.retries.value(),
             verify_sha256=self.verify.isChecked(),
             file_extensions=self.exts.text().strip(),
+            skip_existing=self.skip.isChecked(),
+            stop_on_cloudflare=self.stopcf.isChecked(),
             user_agent=self.ua.text().strip() or DEFAULT_UA,
             cookie=self.cookie.text().strip(),
         )
+
+
+# --------------------------------------------------------------------------- power countdown
+class PowerCountdownDialog(QDialog):
+    """Shown when all downloads are done: counts down, then accepts (= run the action)."""
+
+    def __init__(self, mode: str, seconds: int = 60, parent=None):
+        super().__init__(parent)
+        self.mode, self.left = mode, seconds
+        self.setWindowTitle(t("pow.title"))
+        self.setModal(True)
+        self.setMinimumWidth(420)
+        lay = QVBoxLayout(self)
+        self.lbl = QLabel()
+        self.lbl.setWordWrap(True)
+        lay.addWidget(self.lbl)
+        row = QHBoxLayout()
+        self.b_now = QPushButton(t("pow.now"))
+        self.b_cancel = QPushButton(t("pow.cancel"))
+        self.b_cancel.setDefault(True)   # Enter / Space cancels, never confirms
+        self.b_now.setAutoDefault(False)
+        row.addStretch(1)
+        row.addWidget(self.b_now)
+        row.addWidget(self.b_cancel)
+        lay.addLayout(row)
+        self.b_now.clicked.connect(self.accept)
+        self.b_cancel.clicked.connect(self.reject)
+        self.timer = QTimer(self, interval=1000)
+        self.timer.timeout.connect(self.tick)
+        self._render()
+        self.timer.start()
+
+    def _render(self):
+        self.lbl.setText(t(f"pow.msg_{self.mode}", secs=max(self.left, 0)))
+
+    def tick(self):
+        self.left -= 1
+        self._render()
+        if self.left <= 0:
+            self.timer.stop()
+            self.accept()
+
+    def done(self, r):
+        self.timer.stop()
+        super().done(r)

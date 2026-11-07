@@ -66,6 +66,13 @@ def unique_path(path: Path) -> Path:
         n += 1
 
 
+def part_path(dest_dir: Path, filename: str, suffix: str = "", url: str = "") -> Path:
+    """Where the unfinished download lives. `suffix` (the version id) keeps two models that
+    share a file name and a folder from writing into the same .part file."""
+    base = safe_filename(filename) or ("download_" + hashlib.sha1(url.encode()).hexdigest()[:10])
+    return Path(dest_dir) / (base + (f".{suffix}" if suffix else "") + ".part")
+
+
 def sha256_file(path: Path, cancel: Optional[threading.Event] = None) -> str:
     h = hashlib.sha256()
     with open(path, "rb") as f:
@@ -190,6 +197,8 @@ def download(
     timeout=(15, 60),
     backoff: float = 2.0,
     tag: str = "",
+    part_suffix: str = "",
+    skip_existing: bool = False,
 ) -> Path:
     """Download `url` into `dest_dir`, resuming `<name>.part` if present.
 
@@ -199,8 +208,17 @@ def download(
     dest_dir = Path(dest_dir)
     dest_dir.mkdir(parents=True, exist_ok=True)
     hint = safe_filename(filename_hint)
-    part_base = hint or ("download_" + hashlib.sha1(url.encode()).hexdigest()[:10])
-    part = dest_dir / (part_base + ".part")
+    part = part_path(dest_dir, hint, part_suffix, url)
+
+    if skip_existing and hint and expected_size > 0:
+        have = dest_dir / hint
+        try:
+            if have.is_file() and abs(have.stat().st_size - expected_size) <= 1:
+                log.info("%s %s", tag, t("log.skipped_existing", path=str(have), size=have.stat().st_size))
+                progress(have.stat().st_size, have.stat().st_size)
+                return have
+        except OSError:
+            pass
 
     resume = part.stat().st_size if part.exists() else 0
     log.info("%s %s", tag, t("log.dl_start", file=hint or "?", folder=str(dest_dir), resume=resume))

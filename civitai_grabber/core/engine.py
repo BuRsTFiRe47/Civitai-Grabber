@@ -10,7 +10,8 @@ from typing import Iterable, Optional
 from PySide6.QtCore import QObject, QTimer, Signal
 
 from civitai_grabber.core.api import CivitaiError, CloudflareBlocked, make_session, resolve
-from civitai_grabber.core.downloader import DownloadCancelled, download, safe_filename
+from civitai_grabber.core import power
+from civitai_grabber.core.downloader import DownloadCancelled, download, part_path, safe_filename
 from civitai_grabber.core.links import ParsedLink
 from civitai_grabber.core.logsetup import one_line, redact
 from civitai_grabber.core.models import (
@@ -41,6 +42,9 @@ class Engine(QObject):
     itemChanged = Signal(str)
     itemRemoved = Signal(str)
     groupsChanged = Signal()
+    orderChanged = Signal()
+    powerModeChanged = Signal(str)
+    allFinished = Signal(str)       # power mode to execute
     message = Signal(str, str)      # (code, detail) -> translated by the UI
 
     # worker thread -> GUI thread
@@ -61,8 +65,14 @@ class Engine(QObject):
         self._removed: set[str] = set()
         self._speed: dict[str, tuple[float, int]] = {}
         self._last_start = 0.0
+        self._cooldown_until = 0.0
+        self.cf_cooldown = 15.0          # seconds the queue waits after a Cloudflare block
+        self.power_mode = power.NONE     # never persisted: no surprise shutdown after a restart
+        self._power_activity = False
         self._resolve_sem = threading.Semaphore(2)
         self._closing = False
+        self._stop_evt = threading.Event()
+        self._threads: list[threading.Thread] = []
 
         self._sig_resolved.connect(self._on_resolved)
         self._sig_progress.connect(self._on_progress)
@@ -82,6 +92,21 @@ class Engine(QObject):
         for it in items:
             self.items[it.id] = it
             self.order.append(it.id)
+
+    def _start_thread(self, fn) -> None:
+        self._threads = [x for x in self._threads if x.is_alive()]
+        th = threading.Thread(target=fn, daemon=True)
+        self._threads.append(th)
+        th.start()
+
+    def _emit_safe(self, sig, *args) -> None:
+        """Emit from a worker thread; never crash if the engine is already being torn down."""
+        if self._closing:
+            return
+        try:
+            sig.emit(*args)
+        except RuntimeError:  # underlying C++ object already deleted
+            pass
 
     def begin(self) -> None:
         """Call once the UI is connected: resumes unfinished resolves, starts the scheduler."""
@@ -204,15 +229,14 @@ class Engine(QObject):
             with self._resolve_sem:
                 try:
                     res = resolve(make_session(settings, host), host, mid, vid, allowed, tag)
-                    time.sleep(0.25)  # be gentle with the API
+                    self._stop_evt.wait(0.25)  # be gentle with the API
                 except CivitaiError as e:
                     res = e
                 except Exception as e:  # noqa: BLE001
                     res = CivitaiError(type(e).__name__)
-            if not self._closing:
-                self._sig_resolved.emit(item_id, res)
+            self._emit_safe(self._sig_resolved, item_id, res)
 
-        threading.Thread(target=work, daemon=True).start()
+        self._start_thread(work)
         self.itemChanged.emit(it.id)
 
     def _on_resolved(self, item_id: str, res) -> None:
@@ -315,10 +339,9 @@ class Engine(QObject):
 
     def _part_for(self, it: Item) -> Optional[Path]:
         folder = self.folder_for(it)
-        name = safe_filename(it.filename)
-        if not folder or not name:
+        if not folder or not safe_filename(it.filename):
             return None
-        return folder / (name + ".part")
+        return part_path(folder, it.filename, str(it.version_id or ""))
 
     @staticmethod
     def _delete_part(p: Optional[Path]) -> None:
@@ -334,7 +357,8 @@ class Engine(QObject):
             return
         if len(self._cancel) >= self.settings.max_concurrent:
             return
-        if time.monotonic() - self._last_start < self.settings.start_delay:
+        now = time.monotonic()
+        if now - self._last_start < self.settings.start_delay or now < self._cooldown_until:
             return
         for i in self.order:
             it = self.items[i]
@@ -359,7 +383,10 @@ class Engine(QObject):
         s = self.settings
         item_id, host, url = it.id, it.host, it.download_url
         filename, size, sha = it.filename, it.size, it.sha256
+        suffix = str(it.version_id or "")
         tag = tag_of(it)
+        if self.power_mode != power.NONE:
+            self._power_activity = True
 
         def work():
             last = [0.0]
@@ -368,21 +395,21 @@ class Engine(QObject):
                 now = time.monotonic()
                 if now - last[0] >= 0.25 or (total and done >= total):
                     last[0] = now
-                    self._sig_progress.emit(item_id, done, total)
+                    self._emit_safe(self._sig_progress, item_id, done, total)
 
             try:
                 path = download(
                     make_session(s, host), url, folder, filename,
                     expected_size=size, sha256=sha, verify=s.verify_sha256,
                     retries=s.retries, progress=prog, cancel=cancel, tag=tag,
+                    part_suffix=suffix, skip_existing=s.skip_existing,
                 )
                 result = path
             except Exception as e:  # noqa: BLE001
                 result = e
-            if not self._closing:
-                self._sig_finished.emit(item_id, result)
+            self._emit_safe(self._sig_finished, item_id, result)
 
-        threading.Thread(target=work, daemon=True).start()
+        self._start_thread(work)
         self.itemChanged.emit(it.id)
 
     def _on_progress(self, item_id: str, done: int, total: int) -> None:
@@ -425,18 +452,105 @@ class Engine(QObject):
             it.state, it.error, it.error_info = ERROR, result.as_text(), result.info
             log.error("%s %s", tag_of(it), t("log.dl_failed", err=it.error, info=result.info))
             if isinstance(result, CloudflareBlocked):
-                # don't keep hammering a blocked connection: park the rest of the queue
-                for o in self.items.values():
-                    if o.state == QUEUED and o.id not in self._cancel:
-                        o.state = READY
-                        self.itemChanged.emit(o.id)
-                self.message.emit("queue_stopped_cf", "")
+                if self.settings.stop_on_cloudflare:
+                    # park the rest of the queue instead of hammering a blocked connection
+                    for o in self.items.values():
+                        if o.state == QUEUED and o.id not in self._cancel:
+                            o.state = READY
+                            self.itemChanged.emit(o.id)
+                    self.message.emit("queue_stopped_cf", "")
+                else:
+                    # only this file fails; the queue goes on after a short breather
+                    self._cooldown_until = time.monotonic() + self.cf_cooldown
+                    log.warning("%s %s", tag_of(it), t("log.cf_cooldown", secs=f"{self.cf_cooldown:.0f}"))
         else:
             it.state, it.error = ERROR, f"unknown:{type(result).__name__}: {result}"
             it.error_info = ""
             log.error("%s %s", tag_of(it), t("log.dl_failed", err=it.error, info=""), exc_info=result)
         self.itemChanged.emit(item_id)
         self._dirty()
+        if not isinstance(result, DownloadCancelled):
+            self._maybe_all_finished()
+
+    # ------------------------------------------------------------------ ordering
+    def move(self, ids: Iterable[str], how: str, visible: Optional[Iterable[str]] = None) -> bool:
+        """Re-order the queue. how: up | down | top | bottom.
+
+        `visible` = ids currently shown (a group filter): "up" jumps over the previous *visible*
+        row, "top"/"bottom" go to the edge of the visible rows. Scheduling follows this order.
+        """
+        sels = set(ids) & set(self.items)
+        if not sels:
+            return False
+        vis = set(visible) & set(self.items) if visible is not None else set(self.items)
+        vis |= sels
+        order = list(self.order)
+
+        def vis_now() -> list[str]:
+            return [x for x in order if x in vis]
+
+        if how in ("up", "down"):
+            seq = [x for x in order if x in sels]
+            if how == "down":
+                seq.reverse()
+            for i in seq:
+                v = vis_now()
+                p = v.index(i)
+                q = p - 1 if how == "up" else p + 1
+                if not 0 <= q < len(v) or v[q] in sels:
+                    continue  # already at the edge, or sits behind another selected row
+                nb = v[q]
+                order.remove(i)
+                order.insert(order.index(nb) + (0 if how == "up" else 1), i)
+        elif how in ("top", "bottom"):
+            block = [x for x in order if x in sels]
+            rest = [x for x in vis_now() if x not in sels]
+            first_pos = order.index(block[0])
+            for x in block:
+                order.remove(x)
+            if not rest:
+                order[first_pos:first_pos] = block
+            elif how == "top":
+                order[order.index(rest[0]):order.index(rest[0])] = block
+            else:
+                at = order.index(rest[-1]) + 1
+                order[at:at] = block
+        else:
+            return False
+
+        if order == self.order:
+            return False
+        self.order = order
+        self.orderChanged.emit()
+        self._dirty()
+        return True
+
+    # ------------------------------------------------------------------ power (after all downloads)
+    def set_power_mode(self, mode: str) -> None:
+        mode = mode if mode in power.MODES else power.NONE
+        if mode == self.power_mode:
+            return
+        self.power_mode = mode
+        # armed while downloads are already running/queued -> they count as the activity to wait for
+        self._power_activity = mode != power.NONE and (
+            bool(self._cancel) or any(it.state in (QUEUED, DOWNLOADING) for it in self.items.values())
+        )
+        log.info(t("log.power_armed", mode=t(f"pow.{mode}")))
+        self.powerModeChanged.emit(mode)
+
+    def _maybe_all_finished(self) -> None:
+        """Fire `allFinished` once the queue ran dry after real download activity."""
+        if self.power_mode == power.NONE or not self._power_activity or self._cancel:
+            return
+        busy = any(
+            it.state in (QUEUED, DOWNLOADING, PAUSED) or (it.state == RESOLVING and it.autostart)
+            for it in self.items.values()
+        )
+        if busy:
+            return
+        mode, self.power_mode, self._power_activity = self.power_mode, power.NONE, False
+        self.powerModeChanged.emit(power.NONE)
+        self.allFinished.emit(mode)
 
     # ------------------------------------------------------------------ misc
     def page_url(self, it: Item) -> str:
@@ -471,6 +585,8 @@ class Engine(QObject):
 
     def shutdown(self) -> None:
         """Pause everything (keeps .part files) and write state."""
+        self._closing = True   # first: worker threads stop emitting into a dying engine
+        self._stop_evt.set()
         for ev in self._cancel.values():
             ev.set()
         for it in self.items.values():
@@ -479,4 +595,7 @@ class Engine(QObject):
         self._tick.stop()
         self._save_timer.stop()
         self.save_now()
-        self._closing = True
+        # let workers finish so none of them drops the last reference to this QObject
+        deadline = time.monotonic() + 3.0
+        for th in list(self._threads):
+            th.join(max(0.0, deadline - time.monotonic()))

@@ -143,7 +143,9 @@ def test_start_without_folder_marks_error(env, qtbot, monkeypatch):
 
 
 def test_cloudflare_stops_the_queue(env, qtbot, monkeypatch):
+    """With the 'stop the waiting queue on Cloudflare' setting on (default is: carry on)."""
     engine, win, server, tmp = env
+    engine.settings.stop_on_cloudflare = True
     engine.settings.max_concurrent = 1
     add(engine, server, 501, 502)
     wait_state(qtbot, engine, READY)

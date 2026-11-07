@@ -144,3 +144,17 @@ def server():
 @pytest.fixture
 def payload():
     return PAYLOAD
+
+
+@pytest.fixture(autouse=True)
+def gc_on_main_thread_only():
+    """Cyclic GC may run on any thread that allocates. A Qt object (Engine + its QTimers) collected on a
+    worker thread is destroyed off its owner thread and corrupts Qt's timer list -> random segfaults.
+    So: no automatic collections while a test runs, collect explicitly on the main thread afterwards."""
+    import gc
+    gc.disable()
+    try:
+        yield
+    finally:
+        gc.collect()
+        gc.enable()

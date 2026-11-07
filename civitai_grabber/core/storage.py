@@ -148,6 +148,8 @@ class Settings:
     start_delay: float = 3.0          # seconds between starting two downloads
     retries: int = 3
     verify_sha256: bool = False
+    skip_existing: bool = True        # file already in the folder with the same size -> do not download
+    stop_on_cloudflare: bool = False  # False: a Cloudflare block fails that file only and the queue goes on
     file_extensions: str = "safetensors, pt"   # allowed file types, in order of preference; empty = any
     user_agent: str = DEFAULT_UA
     cookie: str = ""                  # optional, e.g. "cf_clearance=...; ..."

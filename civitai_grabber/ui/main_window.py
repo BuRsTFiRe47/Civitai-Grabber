@@ -10,6 +10,7 @@ from PySide6.QtGui import QAction, QDesktopServices, QGuiApplication, QKeySequen
 from PySide6.QtWidgets import (
     QAbstractItemView,
     QApplication,
+    QComboBox,
     QDockWidget,
     QHBoxLayout,
     QHeaderView,
@@ -30,9 +31,11 @@ from PySide6.QtWidgets import (
 )
 
 from civitai_grabber import APP_NAME
+from civitai_grabber.core import power
 from civitai_grabber.core.engine import Engine
 from civitai_grabber.core.links import extract_links
 from civitai_grabber.core.models import ERROR, PAUSED, READY, RESOLVING
+import logging
 from civitai_grabber.i18n import set_language, t
 from civitai_grabber.core.logsetup import BufferHandler
 from civitai_grabber.ui import theme
@@ -41,6 +44,7 @@ from civitai_grabber.ui.dialogs import (
     AssignGroupDialog,
     GroupDialog,
     PasteLinksDialog,
+    PowerCountdownDialog,
     SettingsDialog,
     pick_folder,
 )
@@ -55,6 +59,7 @@ from civitai_grabber.ui.table_model import (
     format_size,
 )
 
+log = logging.getLogger("civgrab.ui")
 ALL = "__all__"
 NONE = "__none__"
 
@@ -113,6 +118,8 @@ class MainWindow(QMainWindow):
 
         engine.groupsChanged.connect(self._refresh_groups_soon)
         engine.message.connect(self._on_message)
+        engine.powerModeChanged.connect(self._sync_power_combo)
+        engine.allFinished.connect(self._on_all_finished)
         engine.itemChanged.connect(lambda _id: self._update_selection_actions())
         self.model.rowsInserted.connect(self._update_empty)
         self.model.rowsRemoved.connect(self._update_empty)
@@ -146,6 +153,12 @@ class MainWindow(QMainWindow):
         self.a_start_sel.triggered.connect(lambda: self._start(self._selected_ids()))
         self.a_start_view.triggered.connect(lambda: self._start(self._view_ids()))
         self.a_pause.triggered.connect(self._pause)
+        self.a_up, self.a_down, self.a_top, self.a_bottom = mk(), mk(), mk(), mk()
+        for a, how, key in ((self.a_up, "up", "Alt+Up"), (self.a_down, "down", "Alt+Down"),
+                            (self.a_top, "top", "Ctrl+Alt+Up"), (self.a_bottom, "bottom", "Ctrl+Alt+Down")):
+            a.setShortcut(QKeySequence(key))
+            a.triggered.connect(lambda _=False, h=how: self._move(h))
+            self.addAction(a)
         self.a_group, self.a_autogroup = mk(), mk()
         self.a_group.setShortcut(QKeySequence("Ctrl+G"))
         self.a_group.triggered.connect(self._group_selected)
@@ -175,6 +188,9 @@ class MainWindow(QMainWindow):
             tb.addAction(a)
         tb.addSeparator()
         for a in (self.a_start_sel, self.a_start_view, self.a_pause):
+            tb.addAction(a)
+        tb.addSeparator()
+        for a in (self.a_up, self.a_down):
             tb.addAction(a)
         tb.addSeparator()
         for a in (self.a_group, self.a_autogroup):
@@ -272,6 +288,11 @@ class MainWindow(QMainWindow):
         self.lbl_key = QLabel()
         self.lbl_counts = QLabel()
         self.lbl_speed = QLabel()
+        self.lbl_power = QLabel()
+        self.power_combo = QComboBox()
+        self.power_combo.currentIndexChanged.connect(self._power_changed)
+        sb.addPermanentWidget(self.lbl_power)
+        sb.addPermanentWidget(self.power_combo)
         sb.addPermanentWidget(self.lbl_key)
         sb.addPermanentWidget(self.lbl_counts)
         sb.addPermanentWidget(self.lbl_speed)
@@ -305,6 +326,21 @@ class MainWindow(QMainWindow):
         self.a_remove.setText(t("act.remove"))
         self.a_clear.setText(t("act.clear"))
         self.a_settings.setText(t("act.settings"))
+        self.a_up.setText(t("act.up"))
+        self.a_up.setToolTip(t("tip.up"))
+        self.a_down.setText(t("act.down"))
+        self.a_down.setToolTip(t("tip.down"))
+        self.a_top.setText(t("menu.top"))
+        self.a_bottom.setText(t("menu.bottom"))
+        self.lbl_power.setText(t("pow.label"))
+        self.power_combo.setToolTip(t("tip.power"))
+        cur = self.engine.power_mode
+        self.power_combo.blockSignals(True)
+        self.power_combo.clear()
+        for m in power.MODES:
+            self.power_combo.addItem(t(f"pow.{m}"), m)
+        self.power_combo.setCurrentIndex(power.MODES.index(cur))
+        self.power_combo.blockSignals(False)
         self.a_log.setText(t("act.log"))
         self.a_log.setToolTip(t("tip.log"))
         self.log_dock.setWindowTitle(t("logui.title"))
@@ -335,7 +371,7 @@ class MainWindow(QMainWindow):
 
     def _update_selection_actions(self):
         n = len(self._selected_ids())
-        for a in (self.a_start_sel, self.a_group, self.a_remove):
+        for a in (self.a_start_sel, self.a_group, self.a_remove, self.a_up, self.a_down, self.a_top, self.a_bottom):
             a.setEnabled(n > 0)
 
     def _update_empty(self, *_):
@@ -531,6 +567,59 @@ class MainWindow(QMainWindow):
             msg += "  " + t("msg.unresolved_skipped", n=unresolved)
         self.statusBar().showMessage(msg, 7000)
 
+    # ------------------------------------------------------------------ queue order
+    def _move(self, how: str):
+        ids = self._selected_ids()
+        if not ids:
+            return
+        hdr = self.view.horizontalHeader()
+        if hdr.sortIndicatorSection() >= 0:      # a column sort hides the real queue order
+            self.view.sortByColumn(-1, Qt.AscendingOrder)
+        if self.engine.move(ids, how, self._view_ids()):
+            sm = self.view.selectionModel()
+            sm.clearSelection()
+            keep = set(ids)
+            for r in range(self.proxy.rowCount()):
+                ix = self.proxy.index(r, 0)
+                if ix.data(IdRole) in keep:
+                    sm.select(ix, sm.SelectionFlag.Select | sm.SelectionFlag.Rows)
+            first = next((self.proxy.index(r, 0) for r in range(self.proxy.rowCount())
+                          if self.proxy.index(r, 0).data(IdRole) in keep), None)
+            if first is not None:
+                self.view.scrollTo(first)
+
+    # ------------------------------------------------------------------ power
+    def _power_changed(self, idx: int):
+        mode = self.power_combo.itemData(idx) or power.NONE
+        self.engine.set_power_mode(mode)
+        if mode != power.NONE:
+            self.statusBar().showMessage(t("log.power_armed", mode=t(f"pow.{mode}")), 6000)
+
+    def _sync_power_combo(self, mode: str):
+        self.power_combo.blockSignals(True)
+        self.power_combo.setCurrentIndex(power.MODES.index(mode))
+        self.power_combo.blockSignals(False)
+
+    def _on_all_finished(self, mode: str):
+        self.engine.save_now()
+        dlg = PowerCountdownDialog(mode, 60, self)
+        dlg.accepted.connect(lambda: self._run_power(mode))
+        dlg.rejected.connect(lambda: log.info(t("log.power_cancel")))
+        self._power_dialog = dlg
+        dlg.open()
+        QApplication.alert(self, 0)
+
+    def _run_power(self, mode: str):
+        self.engine.save_now()
+        try:
+            cmd = power.run(mode)
+            log.info(t("log.power_run", cmd=" ".join(cmd)))
+        except Exception as e:  # noqa: BLE001 - OSError, CalledProcessError, timeout
+            err = getattr(e, "stderr", b"") or b""
+            text = (err.decode("utf-8", "replace").strip() if isinstance(err, bytes) else str(err)) or str(e)
+            log.error(t("log.power_fail", err=text))
+            QMessageBox.warning(self, APP_NAME, t("pow.failed", err=text))
+
     # ------------------------------------------------------------------ log
     def _sync_log_action(self, visible: bool):
         self.a_log.blockSignals(True)
@@ -563,6 +652,11 @@ class MainWindow(QMainWindow):
         sub.addAction(t("grp.none"), lambda: eng.set_group(ids, ""))
         sub.addAction(t("dlg.new_group_item"), self._group_selected)
         m.addAction(t("act.autogroup"), self._autogroup)
+        om = m.addMenu(t("menu.order"))
+        om.addAction(t("menu.top"), lambda: self._move("top"))
+        om.addAction(t("menu.up"), lambda: self._move("up"))
+        om.addAction(t("menu.down"), lambda: self._move("down"))
+        om.addAction(t("menu.bottom"), lambda: self._move("bottom"))
         m.addSeparator()
         first = eng.items.get(ids[0])
         if first:

@@ -77,7 +77,9 @@ class LogPanel(QWidget):
         self.b_folder.clicked.connect(self._open_folder)
 
         # live records
-        self._bridge = _Bridge(self)
+        # no Qt parent: worker threads may still be emitting while the panel is being destroyed;
+        # Qt drops the connection itself when the receiving panel dies
+        self._bridge = _Bridge()
         self._bridge.line.connect(self._on_line)
         self._handler = _QtHandler(self._bridge)
         logging.getLogger(LOGGER_NAME).addHandler(self._handler)

@@ -261,6 +261,6 @@ def resolve(
         base_model=v.get("baseModel") or "",
         filename=(f or {}).get("name") or "",
         download_url=dl,
-        size=int(float((f or {}).get("sizeKB") or 0) * 1024),
+        size=round(float((f or {}).get("sizeKB") or 0) * 1024),
         sha256=str(hashes.get("SHA256") or "").lower(),
     )

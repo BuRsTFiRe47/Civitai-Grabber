@@ -48,6 +48,7 @@ class ItemModel(QAbstractTableModel):
         engine.itemsAdded.connect(self._added)
         engine.itemRemoved.connect(self._removed)
         engine.itemChanged.connect(self._changed)
+        engine.orderChanged.connect(self._reordered)
 
     # -- engine signals
     def _added(self, ids: list):
@@ -62,6 +63,11 @@ class ItemModel(QAbstractTableModel):
             self.beginRemoveRows(QModelIndex(), row, row)
             del self._ids[row]
             self.endRemoveRows()
+
+    def _reordered(self):
+        self.beginResetModel()
+        self._ids = list(self.engine.order)
+        self.endResetModel()
 
     def _changed(self, item_id: str):
         if item_id in self._ids:

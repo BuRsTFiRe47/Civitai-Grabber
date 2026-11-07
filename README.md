@@ -15,7 +15,11 @@ JDownloader mantığıyla çalışan, Civitai için yazılmış PySide6 indirme 
 - **Sağlam indirme:** `.part` dosyasından devam etme (Range), otomatik yeniden deneme, duraklat/devam, aynı dosya klasörde zaten varsa kopya oluşturmaz (farklıysa `ad (1).ext` olarak kaydeder), isteğe bağlı SHA256 doğrulama.
 - **Dosya türü filtresi:** Ayarlar → İndirme → *Dosya türleri* (varsayılan `safetensors, pt`, sıra = tercih). Sürümde birden çok dosya varsa (ör. `.ckpt` + `.safetensors` + `.zip`) yalnızca izin verilen türden olan indirilir; hiçbiri uymazsa satır hata verir ve sürümdeki dosyaları listeler. Boş bırakırsan her tür iner.
 - **Günlük (log):** Araç çubuğundaki **☰ Günlük** düğmesi alttaki günlük panelini açar: her adım (çözümleme, seçilen dosya, HTTP durumu, Cloudflare ayrıntıları, yeniden denemeler, bitiş hızı) yazılır. Seviye ve metin filtresi var; satıra sağ tık → *Bu satırın günlüğünü göster* yalnızca o linkin kayıtlarını gösterir. Hata satırının üzerine gelince (tooltip) HTTP durumu, `cf-ray`, sunucu ve sayfa başlığı görünür. Kayıtlar ayrıca `logs/civitai-grabber.log` dosyasına yazılır (API anahtarı/token asla yazılmaz). Yakalanmamış hatalar da buraya düşer.
-- **Cloudflare/giriş hatalarını ayırt eder:** hata satırında nedeni ve çözümü yazar; Cloudflare engeli gelirse kalan sırayı durdurur.
+- **Cloudflare/giriş hatalarını ayırt eder:** hata satırında nedeni ve çözümü yazar.
+- **Zaten varsa atlar:** hedef klasörde aynı adlı ve aynı boyutlu dosya varsa indirme yapılmaz, satır *Bitti* olur (Ayarlar → İndirme → *Zaten varsa atla*, varsayılan açık). Yarım indirmeler `ad.<sürümId>.part` olarak tutulur; eski sürümün adsız `.part` dosyaları devam ettirilemez.
+- **Hata sırayı durdurmaz:** bir dosya hata verirse sıradaki dosyaya geçilir. Cloudflare engelinde sıradaki indirme 15 sn bekletilip devam edilir; istersen Ayarlar → *Cloudflare'de sırayı durdur* ile kalan sırayı beklemeye alabilirsin.
+- **Sırayı değiştir:** indirirken de satırları yukarı/aşağı taşı: araç çubuğunda ▲/▼, `Alt+↑/↓`; en üste/alta için `Ctrl+Alt+↑/↓`; sağ tık → *Sırala*. İndirme sırası listedeki sıradır.
+- **Bitince kapat:** durum çubuğundaki **Bitince** menüsü: *Hiçbir şey yapma / Hazırda beklet / Kapat*. Tüm indirmeler bitince 60 sn geri sayım gösterilir, **İptal** ile vazgeçilir. Seçim her açılışta “Hiçbir şey yapma”ya döner. Windows'ta hazırda bekletme için `powercfg /hibernate on` gerekebilir; kapatma açık kaydedilmemiş uygulamalarca engellenebilir (`/f` kullanılmaz). macOS'ta “hazırda beklet” uykuya alır.
 - Koyu (varsayılan) / açık tema, Türkçe / İngilizce arayüz. Liste, gruplar ve ayarlar kapanıp açılınca korunur.
 
 ## Kurulum
@@ -91,7 +95,7 @@ MIT — bkz. [LICENSE](LICENSE).
 
 A PySide6 download manager for Civitai that works like JDownloader: it grabs links from the clipboard and lists them; you select links, put them into **groups**, assign each group a **download folder**, and start. Dark theme is the default.
 
-> Built as an answer to JDownloader's *"blocked by Cloudflare protection"* error on Civitai: requests use a browser-like User-Agent, low concurrency and a delay between starts, and the queue is parked when a block is detected.
+> Built as an answer to JDownloader's *"blocked by Cloudflare protection"* error on Civitai: requests use a browser-like User-Agent, low concurrency and a delay between starts, and the queue backs off when a block is detected.
 
 ### Features
 
@@ -102,7 +106,11 @@ A PySide6 download manager for Civitai that works like JDownloader: it grabs lin
 - **Robust downloads:** resume from the `.part` file (Range), automatic retries, pause/resume, does not create a duplicate if the identical file already exists (a different one is saved as `name (1).ext`), optional SHA256 verification.
 - **File type filter:** Settings → Downloads → *File types* (default `safetensors, pt`, order = preference). If a version has several files (e.g. `.ckpt` + `.safetensors` + `.zip`) only one of the allowed types is downloaded; if none matches the row errors out and lists the files the version has. Leave it empty to allow any type.
 - **Log:** the **☰ Log** toolbar button opens a log panel at the bottom: every step (resolving, chosen file, HTTP status, Cloudflare details, retries, finish speed) is written. It has level and text filters; right-click a row → *Show this row's log* shows only that link's records. Hovering an error row (tooltip) shows the HTTP status, `cf-ray`, server and page title. Records are also written to `logs/civitai-grabber.log` (API key/tokens are never logged). Uncaught errors end up there too.
-- **Tells Cloudflare and login errors apart:** the error row explains the cause and remedy; on a Cloudflare block the rest of the queue is parked.
+- **Tells Cloudflare and login errors apart:** the error row explains the cause and remedy.
+- **Skips what you already have:** if a file with the same name and size is in the target folder nothing is downloaded and the row becomes *Done* (Settings → Downloads → *Skip if exists*, on by default). Partial downloads are kept as `name.<versionId>.part`; the unnamed `.part` files of older versions cannot be resumed.
+- **Errors don't stop the queue:** when a file fails the next one carries on. On a Cloudflare block the next download waits 15 s and continues; optionally Settings → *Stop queue on Cloudflare* parks the rest instead.
+- **Reorder the queue:** also while downloading: ▲/▼ in the toolbar, `Alt+↑/↓`, `Ctrl+Alt+↑/↓` for top/bottom, right-click → *Order*. Download order is the list order.
+- **When done:** status-bar **When done** menu: *Do nothing / Hibernate / Shut down*. After all downloads finish a 60 s countdown appears, **Cancel** aborts it. The choice resets to “Do nothing” at every start. On Windows hibernation may need `powercfg /hibernate on`; shutdown can be blocked by apps with unsaved work (no `/f`). On macOS “hibernate” means sleep.
 - Dark (default) / light theme, Turkish / English UI. List, groups and settings persist across restarts.
 
 ### Install
