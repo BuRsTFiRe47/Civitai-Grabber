@@ -4,6 +4,7 @@ from __future__ import annotations
 from typing import Optional
 
 from PySide6.QtCore import (
+    Signal,
     QAbstractTableModel,
     QMimeData,
     QModelIndex,
@@ -12,7 +13,7 @@ from PySide6.QtCore import (
     Qt,
 )
 from PySide6.QtGui import QColor, QPainter, QPainterPath
-from PySide6.QtWidgets import QStyle, QStyledItemDelegate
+from PySide6.QtWidgets import QAbstractItemView, QStyle, QStyledItemDelegate, QTableView
 
 from civitai_grabber.core.engine import Engine
 from civitai_grabber.core.models import DONE, DOWNLOADING, ERROR, PAUSED, RESOLVING, Item
@@ -98,7 +99,17 @@ class ItemModel(QAbstractTableModel):
 
     def flags(self, index):
         f = super().flags(index)
-        return f | Qt.ItemIsDragEnabled if index.isValid() else f
+        # drop-enabled everywhere so the view draws its insertion line; QueueView does the actual move
+        return f | Qt.ItemIsDragEnabled | Qt.ItemIsDropEnabled if index.isValid() else f | Qt.ItemIsDropEnabled
+
+    def supportedDropActions(self):
+        return Qt.MoveAction | Qt.CopyAction
+
+    def canDropMimeData(self, data, action, row, column, parent):
+        return data.hasFormat(MIME)
+
+    def dropMimeData(self, data, action, row, column, parent):
+        return False  # QueueView.dropEvent handles it
 
     def mimeTypes(self):
         return [MIME]
@@ -181,6 +192,52 @@ class ItemModel(QAbstractTableModel):
         if col == "speed":
             return f"{format_size(it.speed)}/s" if it.state == DOWNLOADING and it.speed > 0 else ""
         return ""
+
+
+class QueueView(QTableView):
+    """Table whose rows can be dragged onto each other to re-order the download queue
+    (rows can still be dragged onto a group in the left list)."""
+
+    rowsReordered = Signal(list, object, bool)  # ids, target id (None = end), insert after target
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.setAcceptDrops(True)
+        self.setDragEnabled(True)
+        self.setDragDropMode(QAbstractItemView.DragDrop)
+        self.setDefaultDropAction(Qt.MoveAction)
+        self.setDropIndicatorShown(True)
+
+    def dragEnterEvent(self, e):
+        if e.mimeData().hasFormat(MIME):
+            e.acceptProposedAction()
+        else:
+            e.ignore()
+
+    def dragMoveEvent(self, e):
+        if not e.mimeData().hasFormat(MIME):
+            e.ignore()
+            return
+        super().dragMoveEvent(e)
+        e.acceptProposedAction()
+
+    def drop_target(self, pos) -> tuple[Optional[str], bool]:
+        """(target id, after?) for a drop at viewport position `pos`."""
+        ix = self.indexAt(pos)
+        if not ix.isValid():
+            return None, False
+        rect = self.visualRect(ix)
+        return ix.data(IdRole), pos.y() >= rect.center().y()
+
+    def dropEvent(self, e):
+        if not e.mimeData().hasFormat(MIME):
+            e.ignore()
+            return
+        ids = [i for i in bytes(e.mimeData().data(MIME)).decode().split("\n") if i]
+        target, after = self.drop_target(e.position().toPoint())
+        e.acceptProposedAction()
+        self.viewport().update()
+        self.rowsReordered.emit(ids, target, after)
 
 
 class FilterProxy(QSortFilterProxyModel):

@@ -25,6 +25,7 @@ from civitai_grabber.core.api import (
     response_info,
 )
 from civitai_grabber.core.logsetup import one_line, redact
+from civitai_grabber.core.ratelimit import RateLimiter
 from civitai_grabber.i18n import t
 
 log = logging.getLogger("civgrab.dl")
@@ -117,7 +118,8 @@ def _finalize(part: Path, final: Path, sha256: str, verify: bool, cancel) -> Pat
     return final
 
 
-def _attempt(session, url, dest_dir, hint, part, expected_size, sha256, verify, progress, cancel, timeout, tag="") -> Path:
+def _attempt(session, url, dest_dir, hint, part, expected_size, sha256, verify, progress, cancel, timeout, tag="",
+             limiter: Optional[RateLimiter] = None) -> Path:
     pos = part.stat().st_size if part.exists() else 0
     headers = {"Range": f"bytes={pos}-"} if pos else {}
     log.debug("%s GET %s range=%s", tag, redact(url), headers.get("Range", "-"))
@@ -165,7 +167,7 @@ def _attempt(session, url, dest_dir, hint, part, expected_size, sha256, verify, 
         dest_dir.mkdir(parents=True, exist_ok=True)
         try:
             with open(part, mode) as f:
-                for chunk in r.iter_content(CHUNK):
+                for chunk in r.iter_content(limiter.chunk_size(CHUNK) if limiter else CHUNK):
                     if cancel.is_set():
                         raise DownloadCancelled()
                     if not chunk:
@@ -173,6 +175,8 @@ def _attempt(session, url, dest_dir, hint, part, expected_size, sha256, verify, 
                     f.write(chunk)
                     done += len(chunk)
                     progress(done, total)
+                    if limiter:
+                        limiter.throttle(len(chunk), cancel)
         except (requests.ConnectionError, requests.Timeout, requests.exceptions.ChunkedEncodingError) as e:
             raise RetryableError(type(e).__name__, f"{type(e).__name__}: {one_line(str(e), 200)}") from e
 
@@ -199,6 +203,7 @@ def download(
     tag: str = "",
     part_suffix: str = "",
     skip_existing: bool = False,
+    limiter: Optional[RateLimiter] = None,
 ) -> Path:
     """Download `url` into `dest_dir`, resuming `<name>.part` if present.
 
@@ -226,7 +231,7 @@ def download(
     attempt = 0
     while True:
         try:
-            path = _attempt(session, url, dest_dir, hint, part, expected_size, sha256, verify, progress, cancel, timeout, tag)
+            path = _attempt(session, url, dest_dir, hint, part, expected_size, sha256, verify, progress, cancel, timeout, tag, limiter)
             dt = max(time.monotonic() - t0, 0.001)
             size = path.stat().st_size if path.exists() else 0
             log.info("%s %s", tag, t("log.dl_done", path=str(path), size=size, secs=f"{dt:.1f}",

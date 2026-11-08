@@ -10,8 +10,9 @@ from typing import Optional
 
 from PySide6.QtCore import QObject, Qt, QUrl, Signal
 from PySide6.QtGui import QDesktopServices, QFontDatabase, QGuiApplication
-from PySide6.QtWidgets import QComboBox, QHBoxLayout, QLabel, QLineEdit, QPlainTextEdit, QPushButton, QVBoxLayout, QWidget
+from PySide6.QtWidgets import QHBoxLayout, QLabel, QLineEdit, QPlainTextEdit, QPushButton, QVBoxLayout, QWidget
 
+from civitai_grabber.ui.theme import Combo as QComboBox
 from civitai_grabber.core.logsetup import LOGGER_NAME, BufferHandler, redact
 from civitai_grabber.i18n import t
 from civitai_grabber.ui import theme

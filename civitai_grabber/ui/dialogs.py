@@ -5,10 +5,8 @@ import dataclasses
 from pathlib import Path
 from typing import Optional
 
-from PySide6.QtCore import Qt, QTimer
+from PySide6.QtCore import Qt, QTimer, Signal
 from PySide6.QtWidgets import (
-    QCheckBox,
-    QComboBox,
     QDialog,
     QDialogButtonBox,
     QDoubleSpinBox,
@@ -18,6 +16,7 @@ from PySide6.QtWidgets import (
     QLabel,
     QLineEdit,
     QPlainTextEdit,
+    QMenu,
     QPushButton,
     QSpinBox,
     QTabWidget,
@@ -25,6 +24,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from civitai_grabber.ui.theme import Check as QCheckBox, Combo as QComboBox
 from civitai_grabber import APP_NAME, REPO_URL, __version__
 from civitai_grabber.core.downloader import safe_filename
 from civitai_grabber.core.models import Group
@@ -34,8 +34,23 @@ from civitai_grabber.i18n import t
 NEW_GROUP = "__new__"
 
 
-def pick_folder(parent: QWidget, title: str, start: str = "") -> str:
-    return QFileDialog.getExistingDirectory(parent, title, start or str(Path.home()))
+def start_dir(*candidates: str) -> str:
+    """First candidate that exists, or its nearest existing parent (a not-yet-created folder is fine)."""
+    for c in candidates:
+        if not c:
+            continue
+        p = Path(c)
+        for q in (p, *p.parents):
+            try:
+                if q.is_dir():
+                    return str(q)
+            except OSError:
+                break
+    return str(Path.home())
+
+
+def pick_folder(parent: QWidget, title: str, start: str = "", *fallbacks: str) -> str:
+    return QFileDialog.getExistingDirectory(parent, title, start_dir(start, *fallbacks))
 
 
 def _buttons(dlg: QDialog, ok_text: str | None = None) -> QDialogButtonBox:
@@ -48,9 +63,14 @@ def _buttons(dlg: QDialog, ok_text: str | None = None) -> QDialogButtonBox:
 
 
 class _FolderRow(QWidget):
-    def __init__(self, parent=None, title: str = ""):
+    userPicked = Signal()       # the user chose a folder with the dialog (so do not overwrite it automatically)
+    recentPicked = Signal(str)  # the user chose a recent location from the drop-down
+
+    def __init__(self, parent=None, title: str = "", fallbacks: list[str] | None = None, recents: list[str] | None = None):
         super().__init__(parent)
         self.title = title or t("dlg.pick_folder")
+        self.fallbacks = list(fallbacks or [])
+        self.recents = [r for r in (recents or []) if r]
         lay = QHBoxLayout(self)
         lay.setContentsMargins(0, 0, 0, 0)
         self.edit = QLineEdit()
@@ -58,16 +78,34 @@ class _FolderRow(QWidget):
         self.btn.setAutoDefault(False)
         self.btn.clicked.connect(self._browse)
         lay.addWidget(self.edit, 1)
+        self.recent_btn = None
+        if self.recents:
+            self.recent_btn = QPushButton("▾")
+            self.recent_btn.setAutoDefault(False)
+            self.recent_btn.setFixedWidth(34)
+            self.recent_btn.setToolTip(t("tip.recent_folders"))
+            self.recent_btn.clicked.connect(self._show_recents)
+            lay.addWidget(self.recent_btn)
         lay.addWidget(self.btn)
 
+    def _show_recents(self):
+        menu = QMenu(self)
+        menu.addAction(t("lbl.recent_folders")).setEnabled(False)
+        for r in self.recents:
+            menu.addAction(r, lambda checked=False, p=r: self.recentPicked.emit(p))
+        menu.exec(self.recent_btn.mapToGlobal(self.recent_btn.rect().bottomLeft()))
+
     def _browse(self):
-        p = pick_folder(self, self.title, self.edit.text())
+        p = pick_folder(self, self.title, self.edit.text(), *self.fallbacks)
         if p:
             self.edit.setText(p)
+            self.userPicked.emit()
 
     def setEnabled(self, on: bool):  # noqa: N802
         self.edit.setEnabled(on)
         self.btn.setEnabled(on)
+        if self.recent_btn:
+            self.recent_btn.setEnabled(on)
 
 
 # --------------------------------------------------------------------------- paste links
@@ -95,7 +133,7 @@ class PasteLinksDialog(QDialog):
 class GroupDialog(QDialog):
     """Create or edit one group (name + download folder)."""
 
-    def __init__(self, parent=None, group: Optional[Group] = None, base_folder: str = ""):
+    def __init__(self, parent=None, group: Optional[Group] = None, base_folder: str = "", recents: list[str] | None = None):
         super().__init__(parent)
         self.setWindowTitle(t("dlg.group_edit") if group else t("dlg.group_new"))
         self.setMinimumWidth(520)
@@ -103,14 +141,21 @@ class GroupDialog(QDialog):
         self._touched = bool(group and group.folder)
         form = QFormLayout(self)
         self.name = QLineEdit(group.name if group else "")
-        self.folder = _FolderRow(title=t("dlg.pick_folder"))
+        self.folder = _FolderRow(title=t("dlg.pick_folder"), fallbacks=[base_folder, *(recents or [])], recents=recents)
         self.folder.edit.setText(group.folder if group else "")
+        self.folder.userPicked.connect(lambda: setattr(self, "_touched", True))
+        self.folder.recentPicked.connect(self._recent_picked)
         form.addRow(t("lbl.group_name"), self.name)
         form.addRow(t("lbl.folder"), self.folder)
         self.box = _buttons(self)
         form.addRow(self.box)
         self.name.textChanged.connect(self._name_changed)
         self.folder.edit.textEdited.connect(lambda _: setattr(self, "_touched", True))
+        self._name_changed()
+
+    def _recent_picked(self, path: str):
+        self.base_folder, self._touched = path, False
+        self.folder.edit.setText(path)
         self._name_changed()
 
     def _name_changed(self):
@@ -126,7 +171,8 @@ class GroupDialog(QDialog):
 class AssignGroupDialog(QDialog):
     """Put the selected links into an existing group or a brand-new one."""
 
-    def __init__(self, parent=None, groups: list[Group] | None = None, count: int = 0, base_folder: str = ""):
+    def __init__(self, parent=None, groups: list[Group] | None = None, count: int = 0, base_folder: str = "",
+                 recents: list[str] | None = None):
         super().__init__(parent)
         self.groups = groups or []
         self.base_folder = base_folder
@@ -140,7 +186,9 @@ class AssignGroupDialog(QDialog):
             self.combo.addItem(g.name, g.id)
         self.combo.addItem(t("dlg.new_group_item"), NEW_GROUP)
         self.name = QLineEdit()
-        self.folder = _FolderRow(title=t("dlg.pick_folder"))
+        self.folder = _FolderRow(title=t("dlg.pick_folder"), fallbacks=[base_folder, *(recents or [])], recents=recents)
+        self.folder.userPicked.connect(lambda: setattr(self, "_touched", True))
+        self.folder.recentPicked.connect(self._recent_picked)
         form.addRow(t("lbl.group"), self.combo)
         form.addRow(t("lbl.group_name"), self.name)
         form.addRow(t("lbl.folder"), self.folder)
@@ -152,6 +200,11 @@ class AssignGroupDialog(QDialog):
         if not self.groups:
             self.combo.setCurrentIndex(self.combo.count() - 1)
         self._sync()
+
+    def _recent_picked(self, path: str):
+        self.base_folder, self._touched = path, False
+        self.folder.edit.setText(path)
+        self._name_changed()
 
     def _is_new(self) -> bool:
         return self.combo.currentData() == NEW_GROUP
@@ -195,7 +248,7 @@ class SettingsDialog(QDialog):
         super().__init__(parent)
         self.s = settings
         self.setWindowTitle(t("dlg.settings_title"))
-        self.resize(680, 500)
+        self.resize(720, 760)
         lay = QVBoxLayout(self)
         tabs = QTabWidget()
         lay.addWidget(tabs)
@@ -221,7 +274,7 @@ class SettingsDialog(QDialog):
         self.default_folder = _FolderRow(title=t("dlg.pick_folder"))
         self.default_folder.edit.setText(settings.default_folder)
         f.addRow(t("lbl.default_folder"), self.default_folder)
-        self.base_folder = _FolderRow(title=t("dlg.pick_folder"))
+        self.base_folder = _FolderRow(title=t("dlg.pick_folder"), fallbacks=list(settings.recent_folders))
         self.base_folder.edit.setText(settings.base_folder)
         f.addRow(t("lbl.base_folder"), self.base_folder)
         bh = QLabel(t("hint.base_folder"))
@@ -260,6 +313,18 @@ class SettingsDialog(QDialog):
         self.retries.setRange(0, 10)
         self.retries.setValue(settings.retries)
         f2.addRow(t("lbl.retries"), self.retries)
+        self.speed = QDoubleSpinBox()
+        self.speed.setRange(0, 10000)
+        self.speed.setDecimals(1)
+        self.speed.setSingleStep(0.5)
+        self.speed.setSuffix(" MB/s")
+        self.speed.setSpecialValueText(t("spd.unlimited"))
+        self.speed.setValue(settings.speed_limit_kbps / 1024)
+        f2.addRow(t("lbl.speed_limit"), self.speed)
+        spl = QLabel(t("hint.speed_limit"))
+        spl.setProperty("muted", True)
+        spl.setWordWrap(True)
+        f2.addRow("", spl)
         self.exts = QLineEdit(settings.file_extensions)
         self.exts.setPlaceholderText("safetensors, pt")
         f2.addRow(t("lbl.file_extensions"), self.exts)
@@ -267,6 +332,13 @@ class SettingsDialog(QDialog):
         eh.setProperty("muted", True)
         eh.setWordWrap(True)
         f2.addRow("", eh)
+        self.allv = QCheckBox(t("lbl.all_versions"))
+        self.allv.setChecked(settings.all_versions)
+        f2.addRow("", self.allv)
+        av = QLabel(t("hint.all_versions"))
+        av.setProperty("muted", True)
+        av.setWordWrap(True)
+        f2.addRow("", av)
         self.skip = QCheckBox(t("lbl.skip_existing"))
         self.skip.setChecked(settings.skip_existing)
         f2.addRow("", self.skip)
@@ -331,6 +403,8 @@ class SettingsDialog(QDialog):
             verify_sha256=self.verify.isChecked(),
             file_extensions=self.exts.text().strip(),
             skip_existing=self.skip.isChecked(),
+            speed_limit_kbps=int(round(self.speed.value() * 1024)),
+            all_versions=self.allv.isChecked(),
             stop_on_cloudflare=self.stopcf.isChecked(),
             user_agent=self.ua.text().strip() or DEFAULT_UA,
             cookie=self.cookie.text().strip(),

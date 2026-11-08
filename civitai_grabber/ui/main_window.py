@@ -10,7 +10,6 @@ from PySide6.QtGui import QAction, QDesktopServices, QGuiApplication, QKeySequen
 from PySide6.QtWidgets import (
     QAbstractItemView,
     QApplication,
-    QComboBox,
     QDockWidget,
     QHBoxLayout,
     QHeaderView,
@@ -24,12 +23,12 @@ from PySide6.QtWidgets import (
     QSizePolicy,
     QSplitter,
     QStackedWidget,
-    QTableView,
     QToolBar,
     QVBoxLayout,
     QWidget,
 )
 
+from civitai_grabber.ui.theme import Combo as QComboBox
 from civitai_grabber import APP_NAME
 from civitai_grabber.core import power
 from civitai_grabber.core.engine import Engine
@@ -54,6 +53,7 @@ from civitai_grabber.ui.table_model import (
     MIME,
     FilterProxy,
     IdRole,
+    QueueView,
     ItemModel,
     ProgressDelegate,
     format_size,
@@ -235,7 +235,7 @@ class MainWindow(QMainWindow):
         left.setMaximumWidth(380)
 
         # right: table (or empty hint)
-        self.view = QTableView()
+        self.view = QueueView()
         self.view.setModel(self.proxy)
         self.view.setSortingEnabled(True)
         self.view.sortByColumn(-1, Qt.AscendingOrder)  # keep insertion order until a header is clicked
@@ -243,8 +243,7 @@ class MainWindow(QMainWindow):
         self.view.setSelectionBehavior(QAbstractItemView.SelectRows)
         self.view.setSelectionMode(QAbstractItemView.ExtendedSelection)
         self.view.setEditTriggers(QAbstractItemView.NoEditTriggers)
-        self.view.setDragEnabled(True)
-        self.view.setDragDropMode(QAbstractItemView.DragOnly)
+        self.view.rowsReordered.connect(self._on_reorder_drop)
         self.view.setShowGrid(False)
         self.view.setWordWrap(False)
         self.view.setTextElideMode(Qt.ElideRight)
@@ -291,6 +290,11 @@ class MainWindow(QMainWindow):
         self.lbl_power = QLabel()
         self.power_combo = QComboBox()
         self.power_combo.currentIndexChanged.connect(self._power_changed)
+        self.lbl_speed_limit = QLabel()
+        self.speed_combo = QComboBox()
+        self.speed_combo.currentIndexChanged.connect(self._speed_changed)
+        sb.addPermanentWidget(self.lbl_speed_limit)
+        sb.addPermanentWidget(self.speed_combo)
         sb.addPermanentWidget(self.lbl_power)
         sb.addPermanentWidget(self.power_combo)
         sb.addPermanentWidget(self.lbl_key)
@@ -332,6 +336,9 @@ class MainWindow(QMainWindow):
         self.a_down.setToolTip(t("tip.down"))
         self.a_top.setText(t("menu.top"))
         self.a_bottom.setText(t("menu.bottom"))
+        self.lbl_speed_limit.setText(t("spd.label"))
+        self.speed_combo.setToolTip(t("tip.speed"))
+        self._fill_speed_combo()
         self.lbl_power.setText(t("pow.label"))
         self.power_combo.setToolTip(t("tip.power"))
         cur = self.engine.power_mode
@@ -428,7 +435,7 @@ class MainWindow(QMainWindow):
         self.b_del.setEnabled(real)
 
     def _new_group(self):
-        dlg = GroupDialog(self, base_folder=self.engine.settings.base_folder)
+        dlg = GroupDialog(self, base_folder=self.engine.suggest_base(), recents=self.engine.settings.recent_folders)
         if dlg.exec():
             name, folder = dlg.value()
             self.engine.add_group(name, folder)
@@ -438,7 +445,7 @@ class MainWindow(QMainWindow):
         g = self.engine.group(gid)
         if not g:
             return
-        dlg = GroupDialog(self, g)
+        dlg = GroupDialog(self, g, base_folder=self.engine.suggest_base(), recents=self.engine.settings.recent_folders)
         if dlg.exec():
             name, folder = dlg.value()
             self.engine.edit_group(gid, name, folder)
@@ -539,7 +546,7 @@ class MainWindow(QMainWindow):
         if not ids:
             self.statusBar().showMessage(t("msg.select_first"), 4000)
             return
-        dlg = AssignGroupDialog(self, self.engine.groups, len(ids), self.engine.settings.base_folder)
+        dlg = AssignGroupDialog(self, self.engine.groups, len(ids), self.engine.suggest_base(), self.engine.settings.recent_folders)
         if not dlg.exec():
             return
         gid, name, folder = dlg.result_group()
@@ -556,10 +563,11 @@ class MainWindow(QMainWindow):
             return
         base = eng.settings.base_folder
         if not base:
-            base = pick_folder(self, t("dlg.base_folder_title"))
+            base = pick_folder(self, t("dlg.base_folder_title"), eng.suggest_base(), *eng.settings.recent_folders)
             if not base:
                 return
             eng.set_settings(dataclasses.replace(eng.settings, base_folder=base))
+        eng.remember_location(base)
         unresolved = sum(1 for i in ids if not eng.items[i].creator)
         created, assigned = eng.auto_group_by_creator(ids, base)
         msg = t("msg.autogrouped", groups=created, n=assigned)
@@ -568,6 +576,17 @@ class MainWindow(QMainWindow):
         self.statusBar().showMessage(msg, 7000)
 
     # ------------------------------------------------------------------ queue order
+    def _on_reorder_drop(self, ids: list, target, after: bool):
+        """Rows dropped inside the table: re-order. A sorted column would hide the result, so go back to queue order."""
+        if self.view.horizontalHeader().sortIndicatorSection() >= 0:
+            self.view.sortByColumn(-1, Qt.AscendingOrder)
+        if self.engine.move_to(ids, target, after):
+            sm = self.view.selectionModel()
+            sm.clearSelection()
+            for row in range(self.proxy.rowCount()):
+                if self.proxy.index(row, 0).data(IdRole) in ids:
+                    sm.select(self.proxy.index(row, 0), sm.SelectionFlag.Select | sm.SelectionFlag.Rows)
+
     def _move(self, how: str):
         ids = self._selected_ids()
         if not ids:
@@ -587,6 +606,35 @@ class MainWindow(QMainWindow):
                           if self.proxy.index(r, 0).data(IdRole) in keep), None)
             if first is not None:
                 self.view.scrollTo(first)
+
+    # ------------------------------------------------------------------ speed limit
+    SPEED_PRESETS_KBPS = (0, 512, 1024, 2048, 5120, 10240, 20480, 51200)
+
+    def _fill_speed_combo(self):
+        cur = int(self.engine.settings.speed_limit_kbps)
+        presets = list(self.SPEED_PRESETS_KBPS)
+        if cur not in presets:
+            presets.append(cur)
+            presets.sort()
+        self.speed_combo.blockSignals(True)
+        self.speed_combo.clear()
+        for kb in presets:
+            mb = f"{kb / 1024:g}"
+            if kb == 0:
+                label = t("spd.unlimited")
+            elif kb in self.SPEED_PRESETS_KBPS:
+                label = f"{mb} MB/s"
+            else:
+                label = t("spd.custom", v=mb)
+            self.speed_combo.addItem(label, kb)
+        self.speed_combo.setCurrentIndex(self.speed_combo.findData(cur))
+        self.speed_combo.blockSignals(False)
+
+    def _speed_changed(self, idx: int):
+        kb = self.speed_combo.itemData(idx)
+        if kb is None or kb == self.engine.settings.speed_limit_kbps:
+            return
+        self.engine.set_settings(dataclasses.replace(self.engine.settings, speed_limit_kbps=int(kb)))
 
     # ------------------------------------------------------------------ power
     def _power_changed(self, idx: int):

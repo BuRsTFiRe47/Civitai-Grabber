@@ -9,8 +9,9 @@ JDownloader mantığıyla çalışan, Civitai için yazılmış PySide6 indirme 
 ## Özellikler
 
 - **Pano izleme:** Civitai model sayfası, `api/download/models/…` veya `model-versions/…` linki kopyalayınca otomatik listeye eklenir (Ctrl+V ile elle, “Link ekle” ile toplu yapıştırma da var).
-- **Otomatik çözümleme:** Her link için Civitai API'den model adı, sürüm, **yaratıcı**, tür (LORA/Checkpoint…), dosya adı ve boyut okunur. Model sayfası linki en yeni sürümü, `?modelVersionId=` varsa o sürümü indirir.
+- **Otomatik çözümleme:** Her link için Civitai API'den model adı, sürüm, **yaratıcı**, tür (LORA/Checkpoint…), dosya adı ve boyut okunur. Sürümü belirtilmemiş model linki (`civitai.com/models/123/ad`, `?` işaretinden öncesi) modelin **tüm sürümlerini** listeye ekler (ör. bir yaratıcının kıyafet koleksiyonu); `?modelVersionId=` varsa yalnızca o sürüm eklenir. Ayarlar → İndirme'den kapatılabilir (kapalıyken yalnızca en yeni sürüm).
 - **Gruplama:** Satırları seçip `Ctrl+G` → mevcut gruba ekle ya da yeni grup + klasör oluştur. Satırları sürükleyip soldaki gruba bırakabilirsin. **“Yaratıcıya göre grupla”** her yaratıcı için `AnaKlasör/YaratıcıAdı` klasörlü grup açar.
+- **Pratik klasör seçimi:** grup klasörü otomatik `ana klasör\grup adı` önerilir (ana klasör yoksa en son kullanılan konum); ▾ düğmesiyle son 8 konumdan seçilir, “Gözat…” en yakın var olan klasörden açılır.
 - **Grup başına klasör**, grup filtresi, sütun sıralama, sağ tık menüsü (taşı, tarayıcıda aç, klasörü aç, yeniden çözümle).
 - **Sağlam indirme:** `.part` dosyasından devam etme (Range), otomatik yeniden deneme, duraklat/devam, aynı dosya klasörde zaten varsa kopya oluşturmaz (farklıysa `ad (1).ext` olarak kaydeder), isteğe bağlı SHA256 doğrulama.
 - **Dosya türü filtresi:** Ayarlar → İndirme → *Dosya türleri* (varsayılan `safetensors, pt`, sıra = tercih). Sürümde birden çok dosya varsa (ör. `.ckpt` + `.safetensors` + `.zip`) yalnızca izin verilen türden olan indirilir; hiçbiri uymazsa satır hata verir ve sürümdeki dosyaları listeler. Boş bırakırsan her tür iner.
@@ -18,9 +19,11 @@ JDownloader mantığıyla çalışan, Civitai için yazılmış PySide6 indirme 
 - **Cloudflare/giriş hatalarını ayırt eder:** hata satırında nedeni ve çözümü yazar.
 - **Zaten varsa atlar:** hedef klasörde aynı adlı ve aynı boyutlu dosya varsa indirme yapılmaz, satır *Bitti* olur (Ayarlar → İndirme → *Zaten varsa atla*, varsayılan açık). Yarım indirmeler `ad.<sürümId>.part` olarak tutulur; eski sürümün adsız `.part` dosyaları devam ettirilemez.
 - **Hata sırayı durdurmaz:** bir dosya hata verirse sıradaki dosyaya geçilir. Cloudflare engelinde sıradaki indirme 15 sn bekletilip devam edilir; istersen Ayarlar → *Cloudflare'de sırayı durdur* ile kalan sırayı beklemeye alabilirsin.
+- **Hız sınırı:** durum çubuğundaki **Hız sınırı** menüsünden (Sınırsız, 0,5–50 MB/s) ya da Ayarlar → İndirme'den ayarla; tüm eşzamanlı indirmelerin toplamına uygulanır ve indirme sürerken de değişir.
+- **Sürükle-bırak sıra:** satırları tutup başka bir satırın üstüne/altına bırakarak sırayı değiştir (çizgi ekleme yerini gösterir). Gruba atamak için aynı satırları soldaki gruba bırakmaya devam edebilirsin.
 - **Sırayı değiştir:** indirirken de satırları yukarı/aşağı taşı: araç çubuğunda ▲/▼, `Alt+↑/↓`; en üste/alta için `Ctrl+Alt+↑/↓`; sağ tık → *Sırala*. İndirme sırası listedeki sıradır.
 - **Bitince kapat:** durum çubuğundaki **Bitince** menüsü: *Hiçbir şey yapma / Hazırda beklet / Kapat*. Tüm indirmeler bitince 60 sn geri sayım gösterilir, **İptal** ile vazgeçilir. Seçim her açılışta “Hiçbir şey yapma”ya döner. Windows'ta hazırda bekletme için `powercfg /hibernate on` gerekebilir; kapatma açık kaydedilmemiş uygulamalarca engellenebilir (`/f` kullanılmaz). macOS'ta “hazırda beklet” uykuya alır.
-- Koyu (varsayılan) / açık tema, Türkçe / İngilizce arayüz. Liste, gruplar ve ayarlar kapanıp açılınca korunur.
+- Koyu (varsayılan) / açık tema (KDE Breeze esinli arduvaz + mercan), Türkçe / İngilizce arayüz. Liste, gruplar ve ayarlar kapanıp açılınca korunur.
 
 ## Kurulum
 
@@ -85,6 +88,10 @@ QT_QPA_PLATFORM=offscreen pytest        # Windows PowerShell: $env:QT_QPA_PLATFO
 
 Tek exe için (denenmedi): `pip install pyinstaller && pyinstaller --noconsole --name CivitaiGrabber main.py`
 
+## Sürüm geçmişi
+
+Bkz. [CHANGELOG.md](CHANGELOG.md).
+
 ## Lisans
 
 MIT — bkz. [LICENSE](LICENSE).
@@ -100,8 +107,9 @@ A PySide6 download manager for Civitai that works like JDownloader: it grabs lin
 ### Features
 
 - **Clipboard watch:** copying a Civitai model page, `api/download/models/…` or `model-versions/…` link adds it to the list automatically (Ctrl+V and a bulk “Add links” dialog also work).
-- **Automatic resolving:** model name, version, **creator**, type (LORA/Checkpoint…), file name and size are read from the Civitai API. A model-page link downloads the newest version, or the one in `?modelVersionId=`.
+- **Automatic resolving:** model name, version, **creator**, type (LORA/Checkpoint…), file name and size are read from the Civitai API. A model link without a version (`civitai.com/models/123/name`, i.e. everything before the `?`) adds **every version** of the model (e.g. a creator's outfit collection); with `?modelVersionId=` only that version is added. Can be switched off in Settings → Downloads (then only the newest version is added).
 - **Grouping:** select rows → `Ctrl+G` → add to an existing group or create a new group + folder. You can also drag rows onto a group on the left. **“Group by creator”** creates a group with folder `BaseFolder/CreatorName` per creator.
+- **Quick folder picking:** the group folder is suggested as `base folder\group name` (or the location used last); the ▾ button lists your last 8 locations and “Browse…” opens at the nearest existing folder.
 - **Per-group folder**, group filter, column sorting, context menu (move, open in browser, open folder, resolve again).
 - **Robust downloads:** resume from the `.part` file (Range), automatic retries, pause/resume, does not create a duplicate if the identical file already exists (a different one is saved as `name (1).ext`), optional SHA256 verification.
 - **File type filter:** Settings → Downloads → *File types* (default `safetensors, pt`, order = preference). If a version has several files (e.g. `.ckpt` + `.safetensors` + `.zip`) only one of the allowed types is downloaded; if none matches the row errors out and lists the files the version has. Leave it empty to allow any type.
@@ -109,9 +117,11 @@ A PySide6 download manager for Civitai that works like JDownloader: it grabs lin
 - **Tells Cloudflare and login errors apart:** the error row explains the cause and remedy.
 - **Skips what you already have:** if a file with the same name and size is in the target folder nothing is downloaded and the row becomes *Done* (Settings → Downloads → *Skip if exists*, on by default). Partial downloads are kept as `name.<versionId>.part`; the unnamed `.part` files of older versions cannot be resumed.
 - **Errors don't stop the queue:** when a file fails the next one carries on. On a Cloudflare block the next download waits 15 s and continues; optionally Settings → *Stop queue on Cloudflare* parks the rest instead.
+- **Speed limit:** from the **Speed limit** status-bar menu (Unlimited, 0.5–50 MB/s) or Settings → Downloads; applies to all concurrent downloads together and takes effect mid-download.
+- **Drag & drop order:** drag rows onto another row to re-order the queue (a line shows the insertion point). Dragging the same rows onto a group on the left still assigns them to it.
 - **Reorder the queue:** also while downloading: ▲/▼ in the toolbar, `Alt+↑/↓`, `Ctrl+Alt+↑/↓` for top/bottom, right-click → *Order*. Download order is the list order.
 - **When done:** status-bar **When done** menu: *Do nothing / Hibernate / Shut down*. After all downloads finish a 60 s countdown appears, **Cancel** aborts it. The choice resets to “Do nothing” at every start. On Windows hibernation may need `powercfg /hibernate on`; shutdown can be blocked by apps with unsaved work (no `/f`). On macOS “hibernate” means sleep.
-- Dark (default) / light theme, Turkish / English UI. List, groups and settings persist across restarts.
+- Dark (default) / light theme (KDE Breeze inspired: slate + coral), Turkish / English UI. List, groups and settings persist across restarts.
 
 ### Install
 
@@ -175,6 +185,10 @@ QT_QPA_PLATFORM=offscreen pytest        # Windows PowerShell: $env:QT_QPA_PLATFO
 ```
 
 Single exe (untested): `pip install pyinstaller && pyinstaller --noconsole --name CivitaiGrabber main.py`
+
+### Changelog
+
+See [CHANGELOG.md](CHANGELOG.md).
 
 ### License
 

@@ -9,11 +9,12 @@ from typing import Iterable, Optional
 
 from PySide6.QtCore import QObject, QTimer, Signal
 
-from civitai_grabber.core.api import CivitaiError, CloudflareBlocked, make_session, resolve
+from civitai_grabber.core.api import CivitaiError, CloudflareBlocked, list_version_ids, make_session, resolve
 from civitai_grabber.core import power
 from civitai_grabber.core.downloader import DownloadCancelled, download, part_path, safe_filename
 from civitai_grabber.core.links import ParsedLink
 from civitai_grabber.core.logsetup import one_line, redact
+from civitai_grabber.core.ratelimit import RateLimiter
 from civitai_grabber.core.models import (
     DONE,
     DOWNLOADING,
@@ -26,7 +27,7 @@ from civitai_grabber.core.models import (
     Group,
     Item,
 )
-from civitai_grabber.core.storage import Settings, Storage
+from civitai_grabber.core.storage import MAX_RECENT_FOLDERS, Settings, Storage
 from civitai_grabber.i18n import t
 
 log = logging.getLogger("civgrab.engine")
@@ -35,6 +36,13 @@ log = logging.getLogger("civgrab.engine")
 def tag_of(it: Item) -> str:
     """Short per-item prefix for log lines; the 6-char id is what the log filter searches for."""
     return f"[#{it.id[:6]} {one_line(it.name or it.filename or it.url, 32)}]"
+
+
+class Expanded:
+    """Result of looking up a whole model: all its version ids."""
+
+    def __init__(self, version_ids: list[int]):
+        self.version_ids = version_ids
 
 
 class Engine(QObject):
@@ -72,6 +80,7 @@ class Engine(QObject):
         self._resolve_sem = threading.Semaphore(2)
         self._closing = False
         self._stop_evt = threading.Event()
+        self.limiter = RateLimiter(settings.speed_limit_kbps * 1024)
         self._threads: list[threading.Thread] = []
 
         self._sig_resolved.connect(self._on_resolved)
@@ -118,6 +127,7 @@ class Engine(QObject):
     # ------------------------------------------------------------------ settings
     def set_settings(self, s: Settings) -> None:
         self.settings = s
+        self.limiter.set_rate(max(0, int(s.speed_limit_kbps)) * 1024)
         self.storage.save_settings(s)
 
     # ------------------------------------------------------------------ groups
@@ -131,8 +141,25 @@ class Engine(QObject):
         g = self.group(gid)
         return g.name if g else ""
 
+    # -- folder memory: dialogs start where the user last was
+    def remember_location(self, path: str) -> None:
+        path = (path or "").strip()
+        if not path:
+            return
+        recent = [path] + [p for p in self.settings.recent_folders if p != path]
+        recent = recent[:MAX_RECENT_FOLDERS]
+        if recent != self.settings.recent_folders:
+            self.settings.recent_folders = recent
+            self.storage.save_settings(self.settings)
+
+    def suggest_base(self) -> str:
+        """Where new group folders go by default: the base folder, else the location used last."""
+        return self.settings.base_folder or (self.settings.recent_folders[0] if self.settings.recent_folders else "")
+
     def add_group(self, name: str, folder: str) -> Group:
         g = Group(name=name.strip(), folder=folder.strip())
+        if g.folder:
+            self.remember_location(str(Path(g.folder).parent))
         self.groups.append(g)
         self.groupsChanged.emit()
         self._dirty()
@@ -142,6 +169,8 @@ class Engine(QObject):
         g = self.group(gid)
         if g:
             g.name, g.folder = name.strip(), folder.strip()
+            if g.folder:
+                self.remember_location(str(Path(g.folder).parent))
             self.groupsChanged.emit()
             for it in self.items.values():
                 if it.group_id == gid:
@@ -225,10 +254,15 @@ class Engine(QObject):
         tag = tag_of(it)
         log.info("%s %s", tag, t("log.resolving", allowed=",".join(allowed) or "*"))
 
+        expand = it.kind == "model" and not vid and settings.all_versions and bool(mid)
+
         def work():
             with self._resolve_sem:
                 try:
-                    res = resolve(make_session(settings, host), host, mid, vid, allowed, tag)
+                    if expand:
+                        res = Expanded(list_version_ids(make_session(settings, host), host, mid, tag))
+                    else:
+                        res = resolve(make_session(settings, host), host, mid, vid, allowed, tag)
                     self._stop_evt.wait(0.25)  # be gentle with the API
                 except CivitaiError as e:
                     res = e
@@ -242,6 +276,9 @@ class Engine(QObject):
     def _on_resolved(self, item_id: str, res) -> None:
         it = self.items.get(item_id)
         if it is None:
+            return
+        if isinstance(res, Expanded):
+            self._expand(it, res.version_ids)
             return
         if isinstance(res, Exception):
             it.state = ERROR
@@ -269,6 +306,40 @@ class Engine(QObject):
             it.autostart = False
             self._queue(it)
         self.itemChanged.emit(item_id)
+        self._dirty()
+
+    def _expand(self, it: Item, version_ids: list[int]) -> None:
+        """A model link without a version: this row becomes the newest version, every other version gets a row."""
+        base = it.url.split("?", 1)[0]
+        have = {x.version_id for x in self.items.values() if x.version_id}
+        first = next((v for v in version_ids if v not in have), None)
+        log.info("%s %s", tag_of(it), t("log.versions_found", n=len(version_ids)))
+        pos = self.order.index(it.id) + 1 if it.id in self.order else len(self.order)
+        new_items: list[Item] = []
+        for vid in version_ids:
+            if vid == first or vid in have:
+                continue
+            n = Item(url=f"{base}?modelVersionId={vid}", host=it.host, kind="version", model_id=it.model_id,
+                     version_id=vid, group_id=it.group_id)
+            n.autostart = it.autostart
+            new_items.append(n)
+        if first is None:  # every version is already in the list
+            self.remove([it.id], _silent=True)
+            self.message.emit("duplicate", it.display_name or base)
+            return
+        it.kind, it.version_id = "version", first
+        it.url = f"{base}?modelVersionId={first}"
+        for n in new_items:
+            self.items[n.id] = n
+            self.order.insert(pos, n.id)
+            pos += 1
+        if new_items:
+            self.orderChanged.emit()
+        self.groupsChanged.emit()
+        self.message.emit("expanded", str(len(new_items) + 1))
+        self._spawn_resolve(it)
+        for n in new_items:
+            self._spawn_resolve(n)
         self._dirty()
 
     def re_resolve(self, ids: Iterable[str]) -> None:
@@ -402,7 +473,7 @@ class Engine(QObject):
                     make_session(s, host), url, folder, filename,
                     expected_size=size, sha256=sha, verify=s.verify_sha256,
                     retries=s.retries, progress=prog, cancel=cancel, tag=tag,
-                    part_suffix=suffix, skip_existing=s.skip_existing,
+                    part_suffix=suffix, skip_existing=s.skip_existing, limiter=self.limiter,
                 )
                 result = path
             except Exception as e:  # noqa: BLE001
@@ -473,6 +544,25 @@ class Engine(QObject):
             self._maybe_all_finished()
 
     # ------------------------------------------------------------------ ordering
+    def move_to(self, ids: Iterable[str], target_id: Optional[str], after: bool = False) -> bool:
+        """Drag & drop: put `ids` (keeping their relative order) before/after `target_id`; None = at the end."""
+        sels = set(ids) & set(self.items)
+        if not sels or (target_id is not None and (target_id in sels or target_id not in self.items)):
+            return False
+        block = [x for x in self.order if x in sels]
+        rest = [x for x in self.order if x not in sels]
+        if target_id is None:
+            at = len(rest)
+        else:
+            at = rest.index(target_id) + (1 if after else 0)
+        order = rest[:at] + block + rest[at:]
+        if order == self.order:
+            return False
+        self.order = order
+        self.orderChanged.emit()
+        self._dirty()
+        return True
+
     def move(self, ids: Iterable[str], how: str, visible: Optional[Iterable[str]] = None) -> bool:
         """Re-order the queue. how: up | down | top | bottom.
 

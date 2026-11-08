@@ -202,6 +202,15 @@ class Resolved:
     sha256: str
 
 
+def list_version_ids(session: requests.Session, host: str, model_id: int, tag: str = "") -> list[int]:
+    """Every version id of a model, newest first (as the API returns them)."""
+    m = _api_get(session, host, f"models/{model_id}", tag)
+    ids = [int(v["id"]) for v in (m.get("modelVersions") or []) if v.get("id")]
+    if not ids:
+        raise NotFound("no-versions")
+    return ids
+
+
 def resolve(
     session: requests.Session,
     host: str,

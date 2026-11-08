@@ -6,7 +6,7 @@ import os
 import shutil
 import sys
 import tempfile
-from dataclasses import asdict, dataclass, fields
+from dataclasses import asdict, dataclass, field, fields
 from pathlib import Path
 
 from civitai_grabber.core.models import Group, Item
@@ -136,6 +136,9 @@ DEFAULT_UA = (
 )
 
 
+MAX_RECENT_FOLDERS = 8
+
+
 @dataclass
 class Settings:
     api_key: str = ""
@@ -150,6 +153,9 @@ class Settings:
     verify_sha256: bool = False
     skip_existing: bool = True        # file already in the folder with the same size -> do not download
     stop_on_cloudflare: bool = False  # False: a Cloudflare block fails that file only and the queue goes on
+    speed_limit_kbps: int = 0         # total download speed limit in KB/s, 0 = unlimited
+    all_versions: bool = True         # a model link without ?modelVersionId adds every version of the model
+    recent_folders: list = field(default_factory=list)   # recently used parent locations of group folders, newest first
     file_extensions: str = "safetensors, pt"   # allowed file types, in order of preference; empty = any
     user_agent: str = DEFAULT_UA
     cookie: str = ""                  # optional, e.g. "cf_clearance=...; ..."
@@ -174,6 +180,7 @@ class Settings:
         s.max_concurrent = max(1, min(8, int(s.max_concurrent)))
         s.start_delay = max(0.0, float(s.start_delay))
         s.retries = max(0, min(10, int(s.retries)))
+        s.recent_folders = [str(x) for x in (s.recent_folders or []) if x][:MAX_RECENT_FOLDERS]
         if s.language not in ("tr", "en"):
             s.language = "tr"
         if s.theme not in ("dark", "light"):
