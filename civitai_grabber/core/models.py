@@ -65,11 +65,13 @@ class Item:
     # runtime only (not persisted)
     speed: float = 0.0
     autostart: bool = False
+    skipped: bool = False        # finished because the file was already in the folder
+    early_access: str = ""       # "" or end date / "yes": Civitai early-access version (may need Buzz)
 
     PERSISTED = (
         "url", "host", "id", "kind", "model_id", "version_id", "name", "version_name",
         "creator", "model_type", "base_model", "filename", "download_url", "size",
-        "sha256", "group_id", "state", "done_bytes", "error", "error_info", "dest_path",
+        "sha256", "group_id", "state", "done_bytes", "error", "error_info", "dest_path", "skipped", "early_access",
     )
 
     @property

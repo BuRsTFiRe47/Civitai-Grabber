@@ -9,7 +9,7 @@ from typing import Iterable, Optional
 
 from PySide6.QtCore import QObject, QTimer, Signal
 
-from civitai_grabber.core.api import CivitaiError, CloudflareBlocked, list_version_ids, make_session, resolve
+from civitai_grabber.core.api import BuzzRequired, CivitaiError, LoginRequired, CloudflareBlocked, list_version_ids, make_session, resolve
 from civitai_grabber.core import power
 from civitai_grabber.core.downloader import DownloadCancelled, download, part_path, safe_filename
 from civitai_grabber.core.links import ParsedLink
@@ -80,6 +80,7 @@ class Engine(QObject):
         self._resolve_sem = threading.Semaphore(2)
         self._closing = False
         self._stop_evt = threading.Event()
+        self._skipped: set[str] = set()
         self.limiter = RateLimiter(settings.speed_limit_kbps * 1024)
         self._threads: list[threading.Thread] = []
 
@@ -293,6 +294,7 @@ class Engine(QObject):
         it.version_id = res.version_id or it.version_id
         it.name, it.version_name, it.creator = res.name, res.version_name, res.creator
         it.model_type, it.base_model = res.model_type, res.base_model
+        it.early_access = res.early_access
         it.filename, it.download_url, it.size, it.sha256 = res.filename, res.download_url, res.size, res.sha256
         for other in self.items.values():
             if other is not it and it.version_id and other.version_id == it.version_id:
@@ -300,6 +302,8 @@ class Engine(QObject):
                 self.message.emit("duplicate", it.display_name)
                 return
         it.state, it.error, it.error_info = READY, "", ""
+        if it.early_access:
+            log.warning("%s %s", tag_of(it), t("log.early_access", date=it.early_access))
         log.info("%s %s", tag_of(it), t("log.resolved", creator=it.creator or "?", mtype=it.model_type or "?",
                                         file=it.filename or "?", size=it.size))
         if it.autostart:
@@ -455,6 +459,8 @@ class Engine(QObject):
         item_id, host, url = it.id, it.host, it.download_url
         filename, size, sha = it.filename, it.size, it.sha256
         suffix = str(it.version_id or "")
+        it.skipped = False
+        self._skipped.discard(item_id)
         tag = tag_of(it)
         if self.power_mode != power.NONE:
             self._power_activity = True
@@ -474,6 +480,7 @@ class Engine(QObject):
                     expected_size=size, sha256=sha, verify=s.verify_sha256,
                     retries=s.retries, progress=prog, cancel=cancel, tag=tag,
                     part_suffix=suffix, skip_existing=s.skip_existing, limiter=self.limiter,
+                    on_skip=lambda: self._skipped.add(item_id),
                 )
                 result = path
             except Exception as e:  # noqa: BLE001
@@ -512,6 +519,8 @@ class Engine(QObject):
         it.speed = 0.0
         if isinstance(result, Path):
             it.state, it.error, it.error_info, it.dest_path = DONE, "", "", str(result)
+            it.skipped = item_id in self._skipped
+            self._skipped.discard(item_id)
             try:
                 it.size = it.done_bytes = result.stat().st_size
             except OSError:
@@ -520,6 +529,9 @@ class Engine(QObject):
             if it.state == DOWNLOADING:  # stopped by shutdown etc.
                 it.state = PAUSED
         elif isinstance(result, CivitaiError):
+            if isinstance(result, LoginRequired) and it.early_access:
+                # an early-access version that was refused: Buzz, not a bad API key and not Cloudflare
+                result = BuzzRequired(it.early_access if it.early_access != "yes" else "", result.info)
             it.state, it.error, it.error_info = ERROR, result.as_text(), result.info
             log.error("%s %s", tag_of(it), t("log.dl_failed", err=it.error, info=result.info))
             if isinstance(result, CloudflareBlocked):

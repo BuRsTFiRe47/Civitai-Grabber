@@ -18,6 +18,7 @@ from civitai_grabber.core.api import (
     CloudflareBlocked,
     HashMismatch,
     HttpError,
+    BuzzRequired,
     LoginRequired,
     RetryableError,
     classify_error_response,
@@ -204,6 +205,7 @@ def download(
     part_suffix: str = "",
     skip_existing: bool = False,
     limiter: Optional[RateLimiter] = None,
+    on_skip=None,
 ) -> Path:
     """Download `url` into `dest_dir`, resuming `<name>.part` if present.
 
@@ -221,6 +223,8 @@ def download(
             if have.is_file() and abs(have.stat().st_size - expected_size) <= 1:
                 log.info("%s %s", tag, t("log.skipped_existing", path=str(have), size=have.stat().st_size))
                 progress(have.stat().st_size, have.stat().st_size)
+                if on_skip:
+                    on_skip()
                 return have
         except OSError:
             pass
@@ -240,7 +244,7 @@ def download(
         except DownloadCancelled:
             log.info("%s %s", tag, t("log.dl_paused", bytes=part.stat().st_size if part.exists() else 0))
             raise
-        except (CloudflareBlocked, LoginRequired, HashMismatch):
+        except (CloudflareBlocked, LoginRequired, BuzzRequired, HashMismatch):
             raise
         except RetryableError as e:
             if attempt >= retries:

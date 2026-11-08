@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import logging
+from datetime import datetime, timezone
 from dataclasses import dataclass
 from http.cookies import SimpleCookie
 from pathlib import PurePosixPath
@@ -41,6 +42,12 @@ class CloudflareBlocked(CivitaiError):
 
 class LoginRequired(CivitaiError):
     code = "login"
+
+
+class BuzzRequired(CivitaiError):
+    """Early-access version: Civitai wants Buzz (or the end of the early-access period). Not a Cloudflare block."""
+
+    code = "buzz"
 
 
 class NotFound(CivitaiError):
@@ -98,6 +105,31 @@ def looks_like_cloudflare(status: int, headers, body: bytes = b"") -> bool:
     return False
 
 
+def looks_like_buzz(body: bytes, content_type: str = "") -> bool:
+    """A small JSON/text error body that talks about early access / Buzz (HTML pages mention Buzz everywhere)."""
+    if "html" in (content_type or "").lower():
+        return False
+    snip = (body or b"")[:4096].lower()
+    return any(m in snip for m in (b"early access", b"earlyaccess", b"early_access", b"buzz"))
+
+
+def early_access_until(v: dict) -> str:
+    """'' when the version is freely available, else the end date (YYYY-MM-DD) or 'yes' when unknown."""
+    ends = str(v.get("earlyAccessEndsAt") or "")
+    flagged = str(v.get("availability") or "").lower() == "earlyaccess"
+    if ends:
+        try:
+            when = datetime.fromisoformat(ends.replace("Z", "+00:00"))
+            if when.tzinfo is None:
+                when = when.replace(tzinfo=timezone.utc)
+            if when <= datetime.now(timezone.utc):
+                return ""
+        except ValueError:
+            pass
+        return ends[:10]
+    return "yes" if flagged else ""
+
+
 _INFO_HEADERS = ("server", "content-type", "content-length", "cf-mitigated", "cf-ray", "retry-after", "location")
 
 
@@ -129,6 +161,8 @@ def classify_error_response(resp: requests.Response) -> CivitaiError:
         return CloudflareBlocked(str(resp.status_code), info)
     code = resp.status_code
     if code in (401, 403):
+        if looks_like_buzz(snippet, resp.headers.get("content-type", "")):
+            return BuzzRequired(str(code), info)
         return LoginRequired(str(code), info)
     if code == 404:
         return NotFound("", info)
@@ -200,6 +234,7 @@ class Resolved:
     download_url: str
     size: int
     sha256: str
+    early_access: str = ""
 
 
 def list_version_ids(session: requests.Session, host: str, model_id: int, tag: str = "") -> list[int]:
@@ -272,4 +307,5 @@ def resolve(
         download_url=dl,
         size=round(float((f or {}).get("sizeKB") or 0) * 1024),
         sha256=str(hashes.get("SHA256") or "").lower(),
+        early_access=early_access_until(v),
     )

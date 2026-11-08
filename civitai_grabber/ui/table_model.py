@@ -127,6 +127,8 @@ class ItemModel(QAbstractTableModel):
     def status_text(self, it: Item) -> str:
         if it.state == ERROR:
             return error_text(it.error)
+        if it.state == DONE and it.skipped:
+            return t("state.skipped")
         return t(f"state.{it.state}")
 
     def data(self, index, role=Qt.DisplayRole):
@@ -158,13 +160,20 @@ class ItemModel(QAbstractTableModel):
                 detail = it.error.partition(":")[2] if it.error.startswith("nofile") else ""
                 if detail:
                     tip += f"\n{detail}"
+                if it.error.startswith("buzz") and it.early_access:
+                    tip += f"\n{t('tip.early_access', date=it.early_access)}"
                 return tip + (f"\n\n{it.error_info}" if it.error_info else "")
+            if col == "status" and it.state == DONE and it.skipped:
+                return t("tip.skipped", path=it.dest_path)
             if col == "name":
-                return f"{it.display_name}\n{it.filename}\n{it.url}"
+                extra = f"\n{t('tip.early_access', date=it.early_access)}" if it.early_access else ""
+                return f"{it.display_name}\n{it.filename}\n{it.url}{extra}"
             return None
         if role == Qt.ForegroundRole:
             c = theme.colors()
             if col == "status":
+                if it.state == DONE and it.skipped:
+                    return QColor(c["warn"])
                 return QColor({ERROR: c["err"], DONE: c["ok"], PAUSED: c["warn"]}.get(it.state, c["text"]))
             if col in ("creator", "type", "version", "speed", "size") or (col == "group" and not it.group_id):
                 return QColor(c["muted"])

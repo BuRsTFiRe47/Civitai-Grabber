@@ -64,6 +64,8 @@ class Handler(BaseHTTPRequestHandler):
             return self._send(403, CF_BODY, {"Content-Type": "text/html", "Server": "cloudflare", "CF-RAY": "8abc-IST"})
         if path == "/forbidden":
             return self._send(401, b"{}", {"Content-Type": "application/json"})
+        if path == "/buzz403":  # API-style refusal that talks about early access
+            return self._send(403, b'{"message":"This model is in Early Access. Buzz required."}', {"Content-Type": "application/json"})
         if path == "/gone":
             return self._send(404, b"nope")
         if path == "/flaky":  # first response is cut half-way
@@ -83,6 +85,20 @@ class Handler(BaseHTTPRequestHandler):
             vid = int(m.group(1))
             if vid == 999:
                 return self._send(404, b"{}", {"Content-Type": "application/json"})
+            early = {  # vid: (earlyAccessEndsAt, downloadUrl path)
+                895: ("2099-12-31T00:00:00.000Z", "/html"),      # still early access, refused with the login page
+                896: ("2001-01-01T00:00:00.000Z", "/file"),      # early access already over -> free
+                897: ("", "/buzz403"),                           # no flag at all, but the body says Buzz
+            }
+            if vid in early:
+                ends, dl = early[vid]
+                v = {"id": vid, "modelId": 80, "name": "ea", "model": {"name": "EA", "type": "LORA"},
+                     "creator": {"username": "ea_author"},
+                     "files": [{"name": "ea.safetensors", "sizeKB": 292.96875, "primary": True,
+                                "downloadUrl": f"http://127.0.0.1:{port}{dl}"}]}
+                if ends:
+                    v["earlyAccessEndsAt"] = ends
+                return self._json(v)
             multi = {
                 # primary is a .ckpt, but a .safetensors exists -> filter must pick the safetensors
                 888: [("old.ckpt", True), ("good.safetensors", False), ("emb.pt", False), ("data.zip", False)],

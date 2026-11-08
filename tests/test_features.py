@@ -288,3 +288,100 @@ def test_assign_dialog_has_recents_and_no_dropdown_without_them(qtbot, tmp_path)
     d2 = GroupDialog()
     qtbot.addWidget(d2)
     assert d2.folder.recent_btn is None
+
+
+# ------------------------------------------------------------------ "skipped" status and Buzz / early access
+def _group_all(engine, tmp):
+    g = engine.add_group("G", str(tmp / "dl"))
+    engine.set_group(engine.order, g.id)
+    return g
+
+
+def test_existing_file_is_reported_as_skipped_not_done(env, qtbot, payload):
+    engine, win, server, tmp = env
+    add(engine, server, 101)
+    wait_state(qtbot, engine, "ready")
+    _group_all(engine, tmp)
+    it = engine.items[engine.order[0]]
+    (tmp / "dl").mkdir()
+    (tmp / "dl" / "cool_lora.safetensors").write_bytes(payload)
+    engine.start([it.id])
+    wait_state(qtbot, engine, "done")
+    assert it.skipped
+    assert win.model.status_text(it).startswith("Atlandı")
+    assert "cool_lora.safetensors" in win.model.data(win.model.index(0, 6), Qt.ToolTipRole)
+    # persisted
+    engine.save_now()
+    from civitai_grabber.core.storage import Storage
+    _, items = Storage(tmp / "cfg").load_state()
+    assert items[0].skipped
+    # a real download afterwards is plain "Done"
+    (tmp / "dl" / "cool_lora.safetensors").unlink()
+    it.state = "ready"
+    engine.start([it.id])
+    wait_state(qtbot, engine, "done")
+    assert not it.skipped and win.model.status_text(it) == "Bitti"
+
+
+def test_early_access_flag_is_read_from_the_api(env, qtbot):
+    engine, win, server, tmp = env
+    add(engine, server, 895, 896)
+    wait_state(qtbot, engine, "ready")
+    a, b = (engine.items[i] for i in engine.order)
+    assert {a.version_id: a.early_access, b.version_id: b.early_access} == {895: "2099-12-31", 896: ""}
+    ea = a if a.version_id == 895 else b
+    assert "2099-12-31" in win.model.data(win.model.index(engine.order.index(ea.id), 0), Qt.ToolTipRole)
+
+
+def test_refused_early_access_version_says_buzz_not_cloudflare(env, qtbot):
+    engine, win, server, tmp = env
+    add(engine, server, 895)
+    wait_state(qtbot, engine, "ready")
+    _group_all(engine, tmp)
+    it = engine.items[engine.order[0]]
+    engine.start([it.id])
+    wait_state(qtbot, engine, "error")
+    assert it.error.startswith("buzz")
+    status = win.model.status_text(it)
+    assert "Buzz" in status and "Cloudflare" not in status
+    tip = win.model.data(win.model.index(0, 6), Qt.ToolTipRole)
+    assert "Cloudflare engeli DEĞİL" in tip and "2099-12-31" in tip
+    assert engine._cooldown_until == 0 or engine._cooldown_until < __import__("time").monotonic()  # no Cloudflare back-off
+
+
+def test_buzz_is_also_recognised_from_the_error_body(env, qtbot):
+    engine, win, server, tmp = env
+    add(engine, server, 897)
+    wait_state(qtbot, engine, "ready")
+    _group_all(engine, tmp)
+    it = engine.items[engine.order[0]]
+    assert it.early_access == ""
+    engine.start([it.id])
+    wait_state(qtbot, engine, "error")
+    assert it.error.startswith("buzz")
+
+
+def test_ended_early_access_downloads_normally_and_other_errors_stay_what_they_were(env, qtbot):
+    engine, win, server, tmp = env
+    add(engine, server, 896, 801)
+    wait_state(qtbot, engine, "ready")
+    _group_all(engine, tmp)
+    ended = next(i for i in engine.items.values() if i.version_id == 896)
+    other = next(i for i in engine.items.values() if i.version_id == 801)
+    other.download_url = f"http://{server}/cf"
+    engine.start(engine.order)
+    qtbot.waitUntil(lambda: ended.state == "done" and other.state == "error", timeout=20000)
+    assert other.error.startswith("cloudflare")          # a real Cloudflare block is still Cloudflare
+    plain_login = next(i for i in engine.items.values() if i is other)
+    plain_login.error = "login:html"
+    assert "Giriş" in win.model.status_text(plain_login)  # without the early-access flag a login page is a login problem
+
+
+def test_buzz_detection_helpers():
+    from civitai_grabber.core.api import early_access_until, looks_like_buzz
+    assert looks_like_buzz(b'{"message":"Buzz required"}', "application/json")
+    assert not looks_like_buzz(b"<html>buzz balance</html>", "text/html")
+    assert early_access_until({}) == ""
+    assert early_access_until({"availability": "EarlyAccess"}) == "yes"
+    assert early_access_until({"earlyAccessEndsAt": "2001-01-01T00:00:00Z"}) == ""
+    assert early_access_until({"earlyAccessEndsAt": "2099-05-06T10:00:00Z"}) == "2099-05-06"
