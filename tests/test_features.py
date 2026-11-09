@@ -12,6 +12,7 @@ from civitai_grabber.core.downloader import download  # noqa: E402
 from civitai_grabber.core.links import ParsedLink, parse_link  # noqa: E402
 from civitai_grabber.core.ratelimit import RateLimiter  # noqa: E402
 from civitai_grabber.core.storage import Settings  # noqa: E402
+from civitai_grabber.ui.table_model import COLS  # noqa: E402
 from civitai_grabber.ui import theme  # noqa: E402
 from civitai_grabber.ui.table_model import MIME, IdRole  # noqa: E402
 from tests.test_core import sess  # noqa: E402
@@ -309,7 +310,7 @@ def test_existing_file_is_reported_as_skipped_not_done(env, qtbot, payload):
     wait_state(qtbot, engine, "done")
     assert it.skipped
     assert win.model.status_text(it).startswith("Atlandı")
-    assert "cool_lora.safetensors" in win.model.data(win.model.index(0, 6), Qt.ToolTipRole)
+    assert "cool_lora.safetensors" in win.model.data(win.model.index(0, COLS.index("status")), Qt.ToolTipRole)
     # persisted
     engine.save_now()
     from civitai_grabber.core.storage import Storage
@@ -344,7 +345,7 @@ def test_refused_early_access_version_says_buzz_not_cloudflare(env, qtbot):
     assert it.error.startswith("buzz")
     status = win.model.status_text(it)
     assert "Buzz" in status and "Cloudflare" not in status
-    tip = win.model.data(win.model.index(0, 6), Qt.ToolTipRole)
+    tip = win.model.data(win.model.index(0, COLS.index("status")), Qt.ToolTipRole)
     assert "Cloudflare engeli DEĞİL" in tip and "2099-12-31" in tip
     assert engine._cooldown_until == 0 or engine._cooldown_until < __import__("time").monotonic()  # no Cloudflare back-off
 
@@ -385,3 +386,14 @@ def test_buzz_detection_helpers():
     assert early_access_until({"availability": "EarlyAccess"}) == "yes"
     assert early_access_until({"earlyAccessEndsAt": "2001-01-01T00:00:00Z"}) == ""
     assert early_access_until({"earlyAccessEndsAt": "2099-05-06T10:00:00Z"}) == "2099-05-06"
+
+
+def test_base_model_column_is_shown(env, qtbot):
+    engine, win, server, tmp = env
+    add(engine, server, 101)
+    wait_state(qtbot, engine, "ready")
+    col = COLS.index("base")
+    assert win.model.headerData(col, Qt.Horizontal) == "Temel model"
+    assert win.model.data(win.model.index(0, col)) == "SDXL 1.0"
+    engine.items[engine.order[0]].base_model = ""
+    assert win.model.data(win.model.index(0, col)) == "—"

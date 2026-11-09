@@ -3,6 +3,7 @@ import os
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
+from civitai_grabber.ui.table_model import COLS  # noqa: E402
 import pytest  # noqa: E402
 from PySide6.QtCore import Qt  # noqa: E402
 from PySide6.QtWidgets import QApplication  # noqa: E402
@@ -194,9 +195,9 @@ def test_progress_over_2gib_does_not_overflow(env, qtbot):
     engine._sig_progress.emit(it.id, 3_000_000_000, 7_000_000_000)
     qtbot.waitUntil(lambda: it.done_bytes == 3_000_000_000)
     assert it.size == 7_000_000_000 and abs(it.progress - 3 / 7) < 1e-9
-    assert win.model.data(win.model.index(0, 4)).endswith("GB")
+    assert win.model.data(win.model.index(0, COLS.index("size"))).endswith("GB")
     from civitai_grabber.ui.table_model import SortRole
-    assert win.model.data(win.model.index(0, 4), SortRole) == 7_000_000_000
+    assert win.model.data(win.model.index(0, COLS.index("size")), SortRole) == 7_000_000_000
 
 
 def test_filter_error_is_shown_and_logged(env, qtbot):
@@ -206,7 +207,7 @@ def test_filter_error_is_shown_and_logged(env, qtbot):
     it = engine.items[engine.order[0]]
     assert it.error.startswith("nofile:") and "only.ckpt" in it.error
     assert "Uzantı filtresine" in win.model.status_text(it)
-    tip = win.model.data(win.model.index(0, 6), Qt.ToolTipRole)
+    tip = win.model.data(win.model.index(0, COLS.index("status")), Qt.ToolTipRole)
     assert "only.ckpt" in tip
     # the log panel got the explanation (live handler), filterable by the row code
     code = f"#{it.id[:6]}"
@@ -228,7 +229,7 @@ def test_cloudflare_error_info_is_kept_on_the_row_and_in_the_log(env, qtbot):
     engine.start([it.id])
     qtbot.waitUntil(lambda: it.state == ERROR, timeout=10000)
     assert "cf-ray=8abc-IST" in it.error_info
-    tip = win.model.data(win.model.index(0, 6), Qt.ToolTipRole)
+    tip = win.model.data(win.model.index(0, COLS.index("status")), Qt.ToolTipRole)
     assert "Cloudflare" in tip and "cf-ray=8abc-IST" in tip
     win.show_log_for(it.id)
     assert "İndirilemedi" in win.log_panel.view.toPlainText()

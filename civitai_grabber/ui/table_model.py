@@ -20,7 +20,7 @@ from civitai_grabber.core.models import DONE, DOWNLOADING, ERROR, PAUSED, RESOLV
 from civitai_grabber.i18n import error_text, t
 from civitai_grabber.ui import theme
 
-COLS = ["name", "version", "creator", "type", "size", "group", "status", "progress", "speed"]
+COLS = ["name", "version", "creator", "type", "base", "size", "group", "status", "progress", "speed"]
 COL_PROGRESS = COLS.index("progress")
 MIME = "application/x-civitai-grabber-ids"
 
@@ -175,7 +175,7 @@ class ItemModel(QAbstractTableModel):
                 if it.state == DONE and it.skipped:
                     return QColor(c["warn"])
                 return QColor({ERROR: c["err"], DONE: c["ok"], PAUSED: c["warn"]}.get(it.state, c["text"]))
-            if col in ("creator", "type", "version", "speed", "size") or (col == "group" and not it.group_id):
+            if col in ("creator", "type", "base", "version", "speed", "size") or (col == "group" and not it.group_id):
                 return QColor(c["muted"])
         if role == Qt.TextAlignmentRole and col in ("size", "speed"):
             return int(Qt.AlignRight | Qt.AlignVCenter)
@@ -190,6 +190,8 @@ class ItemModel(QAbstractTableModel):
             return it.creator or "—"
         if col == "type":
             return it.model_type or "—"
+        if col == "base":
+            return it.base_model or "—"
         if col == "size":
             return format_size(it.size)
         if col == "group":

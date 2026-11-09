@@ -255,7 +255,7 @@ class MainWindow(QMainWindow):
         h.setStretchLastSection(False)
         h.setMinimumSectionSize(60)
         h.setSectionResizeMode(COLS.index("name"), QHeaderView.Stretch)
-        for name, w in (("version", 75), ("creator", 115), ("type", 90), ("size", 90), ("group", 115),
+        for name, w in (("version", 75), ("creator", 115), ("type", 90), ("base", 105), ("size", 90), ("group", 115),
                         ("status", 165), ("progress", 110), ("speed", 85)):
             self.view.setColumnWidth(COLS.index(name), w)
         self.view.setContextMenuPolicy(Qt.CustomContextMenu)

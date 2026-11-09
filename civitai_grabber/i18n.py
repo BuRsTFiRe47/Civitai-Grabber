@@ -20,7 +20,7 @@ TR: dict[str, str] = {
     "tip.group": "Seçili linkleri bir gruba koy ve klasör ata (Ctrl+G)",
     "tip.autogroup": "Her yaratıcı için ayrı grup + klasör oluştur (Ayarlar'daki ana klasörün altında)",
     # table
-    "col.name": "Ad", "col.version": "Sürüm", "col.creator": "Yaratıcı", "col.type": "Tür",
+    "col.name": "Ad", "col.version": "Sürüm", "col.creator": "Yaratıcı", "col.type": "Tür", "col.base": "Temel model",
     "col.size": "Boyut", "col.group": "Grup", "col.status": "Durum", "col.progress": "İlerleme",
     "col.speed": "Hız",
     "state.resolving": "Çözümleniyor…", "state.ready": "Hazır", "state.queued": "Sırada",
@@ -176,7 +176,7 @@ EN: dict[str, str] = {
     "tip.start_view": "Start every link currently shown (in the selected group)",
     "tip.group": "Put the selected links into a group and assign a folder (Ctrl+G)",
     "tip.autogroup": "Create one group + folder per creator (under the base folder from Settings)",
-    "col.name": "Name", "col.version": "Version", "col.creator": "Creator", "col.type": "Type",
+    "col.name": "Name", "col.version": "Version", "col.creator": "Creator", "col.type": "Type", "col.base": "Base model",
     "col.size": "Size", "col.group": "Group", "col.status": "Status", "col.progress": "Progress",
     "col.speed": "Speed",
     "state.resolving": "Resolving…", "state.ready": "Ready", "state.queued": "Queued",

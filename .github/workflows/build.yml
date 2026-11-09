@@ -1,9 +1,9 @@
 name: Build
 
 # Elle çalıştır: GitHub → Actions → Build → "Run workflow"  (Windows .zip artifact'i çıkar)
-# Sürüm yayınla:  git tag v1.0.5 && git push origin v1.0.5  (zip, Releases sayfasına eklenir)
+# Sürüm yayınla:  git tag v1.0.6 && git push origin v1.0.6  (zip, Releases sayfasına eklenir)
 # Run it by hand: GitHub → Actions → Build → "Run workflow" (produces a Windows .zip artifact)
-# Publish a release: git tag v1.0.5 && git push origin v1.0.5 (the zip is attached to the Release)
+# Publish a release: git tag v1.0.6 && git push origin v1.0.6 (the zip is attached to the Release)
 on:
   workflow_dispatch:
   push:

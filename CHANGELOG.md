@@ -1,5 +1,10 @@
 # Changelog / Değişiklik günlüğü
 
+## 1.0.6 — 2026-11-10
+
+- **TR:** Tabloya **Temel model** sütunu eklendi (SDXL 1.0, Pony, Illustrious, SD 1.5 …); Civitai'nin bildirdiği değer gösterilir, sütuna tıklayarak sıralayabilirsin. Eski kayıtlı satırlarda da görünür.
+- **EN:** Added a **Base model** column to the table (SDXL 1.0, Pony, Illustrious, SD 1.5 …), as reported by Civitai; click the header to sort. Also shows for rows saved earlier.
+
 ## 1.0.5 — 2026-11-09
 
 ### Türkçe
