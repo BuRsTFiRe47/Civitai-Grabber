@@ -1,5 +1,12 @@
 # Changelog / Değişiklik günlüğü
 
+## 1.0.7 — 2026-11-13
+
+- **TR:** Görev çubuğu simgesi: uygulama artık kendi simgesiyle (mercan zemin, beyaz indirme oku) görünür; exe dosyasına da gömülü (`assets/icon.ico`) ve Windows'ta kendi görev çubuğu kimliğiyle açılır, böylece diğer Python/başlatıcı pencerelerinden ayırt edilir. Simgeyi yeniden üretmek için `python tools/make_icon.py`.
+- **TR:** Cloudflare engelinden sonra sıradaki indirmenin bekleme süresi 15 sn → **6 sn**.
+- **EN:** Taskbar icon: the app now shows its own icon (coral tile, white download arrow), embedded in the exe too (`assets/icon.ico`), and starts with its own Windows taskbar identity so it is no longer grouped with other Python/launcher windows. Regenerate with `python tools/make_icon.py`.
+- **EN:** Wait after a Cloudflare block before the next download: 15 s → **6 s**.
+
 ## 1.0.6 — 2026-11-10
 
 - **TR:** Tabloya **Temel model** sütunu eklendi (SDXL 1.0, Pony, Illustrious, SD 1.5 …); Civitai'nin bildirdiği değer gösterilir, sütuna tıklayarak sıralayabilirsin. Eski kayıtlı satırlarda da görünür.

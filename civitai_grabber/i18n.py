@@ -113,7 +113,7 @@ TR: dict[str, str] = {
     "menu.up": "Yukarı al", "menu.down": "Aşağı al",
     "lbl.skip_existing": "Dosya klasörde zaten varsa (aynı boyut) indirmeyi atla",
     "lbl.stop_on_cf": "Cloudflare engelinde bekleyen sırayı durdur",
-    "hint.cf_queue": "Kapalıyken (önerilen) engellenen dosya hata verir, sıradakiler 15 sn bekleyip devam eder. "
+    "hint.cf_queue": "Kapalıyken (önerilen) engellenen dosya hata verir, sıradakiler 6 sn bekleyip devam eder. "
                      "Açıkken kalan sıra durdurulur ve elle yeniden başlatman gerekir.",
     "log.skipped_existing": "Zaten var, indirme atlandı: {path} ({size} bayt)",
     "log.cf_cooldown": "Cloudflare engeli: sıradaki indirme {secs} sn bekletilecek",
@@ -263,7 +263,7 @@ EN: dict[str, str] = {
     "menu.up": "Move up", "menu.down": "Move down",
     "lbl.skip_existing": "Skip the download if the file is already in the folder (same size)",
     "lbl.stop_on_cf": "Stop the waiting queue on a Cloudflare block",
-    "hint.cf_queue": "Off (recommended): the blocked file fails, the next ones wait 15 s and carry on. "
+    "hint.cf_queue": "Off (recommended): the blocked file fails, the next ones wait 6 s and carry on. "
                      "On: the rest of the queue is stopped and you must start it again by hand.",
     "log.skipped_existing": "Already there, download skipped: {path} ({size} bytes)",
     "log.cf_cooldown": "Cloudflare block: the next download waits {secs} s",

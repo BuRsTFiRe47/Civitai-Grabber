@@ -397,3 +397,27 @@ def test_base_model_column_is_shown(env, qtbot):
     assert win.model.data(win.model.index(0, col)) == "SDXL 1.0"
     engine.items[engine.order[0]].base_model = ""
     assert win.model.data(win.model.index(0, col)) == "—"
+
+
+def test_icon_is_visible_and_ico_ships(qtbot):
+    from pathlib import Path
+    from civitai_grabber.ui.theme import app_icon, icon_pixmap
+    assert not app_icon().isNull() and 16 in [s.width() for s in app_icon().availableSizes()]
+    img = icon_pixmap(64).toImage()
+    assert img.pixelColor(10, 32).name() == "#d94a4f"          # coral tile, not dark-on-dark
+    assert img.pixelColor(0, 0).alpha() == 0                    # transparent corners
+    ico = Path(__file__).resolve().parent.parent / "assets" / "icon.ico"
+    assert ico.is_file() and ico.read_bytes()[:4] == b"\x00\x00\x01\x00"
+    wf = (ico.parent.parent / ".github" / "workflows" / "build.yml").read_text()
+    assert "--icon assets/icon.ico" in wf
+
+
+def test_cloudflare_backoff_is_short():
+    from civitai_grabber.core.engine import Engine
+    import inspect
+    assert "cf_cooldown = 6.0" in inspect.getsource(Engine.__init__)
+
+
+def test_windows_app_id_helper_is_harmless_elsewhere():
+    from civitai_grabber.app import _set_windows_app_id
+    _set_windows_app_id()

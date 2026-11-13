@@ -180,33 +180,38 @@ class Combo(QComboBox):
         p.drawPolyline(QPolygonF([QPointF(cx - s, cy - s / 2), QPointF(cx, cy + s / 2), QPointF(cx + s, cy - s / 2)]))
 
 
+def icon_pixmap(size: int) -> QPixmap:
+    """Coral tile with a white download arrow: clearly visible on dark and light taskbars."""
+    pm = QPixmap(size, size)
+    pm.fill(Qt.transparent)
+    p = QPainter(pm)
+    p.setRenderHint(QPainter.Antialiasing)
+    r = QRectF(size * 0.03, size * 0.03, size * 0.94, size * 0.94)
+    p.setPen(Qt.NoPen)
+    p.setBrush(QBrush(QColor("#d94a4f")))
+    p.drawRoundedRect(r, size * 0.24, size * 0.24)
+    pen = QPen(QColor("#ffffff"))
+    pen.setWidthF(max(1.6, size * 0.11))
+    pen.setCapStyle(Qt.RoundCap)
+    pen.setJoinStyle(Qt.RoundJoin)
+    p.setPen(pen)
+    path = QPainterPath()
+    path.moveTo(QPointF(size * 0.5, size * 0.20))
+    path.lineTo(QPointF(size * 0.5, size * 0.60))
+    path.moveTo(QPointF(size * 0.31, size * 0.43))
+    path.lineTo(QPointF(size * 0.5, size * 0.62))
+    path.lineTo(QPointF(size * 0.69, size * 0.43))
+    path.moveTo(QPointF(size * 0.26, size * 0.78))
+    path.lineTo(QPointF(size * 0.74, size * 0.78))
+    p.drawPath(path)
+    p.end()
+    return pm
+
+
 def app_icon() -> QIcon:
     icon = QIcon()
-    for size in (16, 24, 32, 48, 64, 128, 256):
-        pm = QPixmap(size, size)
-        pm.fill(Qt.transparent)
-        p = QPainter(pm)
-        p.setRenderHint(QPainter.Antialiasing)
-        r = QRectF(size * 0.04, size * 0.04, size * 0.92, size * 0.92)
-        p.setPen(Qt.NoPen)
-        p.setBrush(QBrush(QColor("#202133")))
-        p.drawRoundedRect(r, size * 0.22, size * 0.22)
-        pen = QPen(QColor("#d94a4f"))
-        pen.setWidthF(size * 0.09)
-        pen.setCapStyle(Qt.RoundCap)
-        pen.setJoinStyle(Qt.RoundJoin)
-        p.setPen(pen)
-        path = QPainterPath()
-        path.moveTo(QPointF(size * 0.5, size * 0.22))
-        path.lineTo(QPointF(size * 0.5, size * 0.60))
-        path.moveTo(QPointF(size * 0.33, size * 0.45))
-        path.lineTo(QPointF(size * 0.5, size * 0.62))
-        path.lineTo(QPointF(size * 0.67, size * 0.45))
-        path.moveTo(QPointF(size * 0.28, size * 0.76))
-        path.lineTo(QPointF(size * 0.72, size * 0.76))
-        p.drawPath(path)
-        p.end()
-        icon.addPixmap(pm)
+    for size in (16, 20, 24, 32, 40, 48, 64, 96, 128, 256):
+        icon.addPixmap(icon_pixmap(size))
     return icon
 
 

@@ -19,7 +19,7 @@ JDownloader mantığıyla çalışan, Civitai için yazılmış PySide6 indirme 
 - **Cloudflare/giriş hatalarını ayırt eder:** hata satırında nedeni ve çözümü yazar.
 - **Zaten varsa atlar:** hedef klasörde aynı adlı ve aynı boyutlu dosya varsa indirme yapılmaz, satır *Bitti* olur (Ayarlar → İndirme → *Zaten varsa atla*, varsayılan açık). Yarım indirmeler `ad.<sürümId>.part` olarak tutulur; eski sürümün adsız `.part` dosyaları devam ettirilemez.
 - **Durum ayrımı:** zaten var olan dosya **Atlandı (zaten var)** olarak görünür. Erken erişimdeki (Buzz isteyen) sürümler reddedilirse **Buzz gerekiyor** denir; bu Cloudflare engeli değildir, Civitai'de Buzz ile açıp satırı yeniden başlat veya erken erişimin bitmesini bekle.
-- **Hata sırayı durdurmaz:** bir dosya hata verirse sıradaki dosyaya geçilir. Cloudflare engelinde sıradaki indirme 15 sn bekletilip devam edilir; istersen Ayarlar → *Cloudflare'de sırayı durdur* ile kalan sırayı beklemeye alabilirsin.
+- **Hata sırayı durdurmaz:** bir dosya hata verirse sıradaki dosyaya geçilir. Cloudflare engelinde sıradaki indirme 6 sn bekletilip devam edilir; istersen Ayarlar → *Cloudflare'de sırayı durdur* ile kalan sırayı beklemeye alabilirsin.
 - **Hız sınırı:** durum çubuğundaki **Hız sınırı** menüsünden (Sınırsız, 0,5–50 MB/s) ya da Ayarlar → İndirme'den ayarla; tüm eşzamanlı indirmelerin toplamına uygulanır ve indirme sürerken de değişir.
 - **Sürükle-bırak sıra:** satırları tutup başka bir satırın üstüne/altına bırakarak sırayı değiştir (çizgi ekleme yerini gösterir). Gruba atamak için aynı satırları soldaki gruba bırakmaya devam edebilirsin.
 - **Sırayı değiştir:** indirirken de satırları yukarı/aşağı taşı: araç çubuğunda ▲/▼, `Alt+↑/↓`; en üste/alta için `Ctrl+Alt+↑/↓`; sağ tık → *Sırala*. İndirme sırası listedeki sıradır.
@@ -118,7 +118,7 @@ A PySide6 download manager for Civitai that works like JDownloader: it grabs lin
 - **Tells Cloudflare and login errors apart:** the error row explains the cause and remedy.
 - **Skips what you already have:** if a file with the same name and size is in the target folder nothing is downloaded and the row becomes *Done* (Settings → Downloads → *Skip if exists*, on by default). Partial downloads are kept as `name.<versionId>.part`; the unnamed `.part` files of older versions cannot be resumed.
 - **Clear statuses:** an existing file shows **Skipped (already there)**. Early-access versions (needing Buzz) that get refused say **Buzz required**; this is not a Cloudflare block: unlock it on Civitai with Buzz and restart the row, or wait for early access to end.
-- **Errors don't stop the queue:** when a file fails the next one carries on. On a Cloudflare block the next download waits 15 s and continues; optionally Settings → *Stop queue on Cloudflare* parks the rest instead.
+- **Errors don't stop the queue:** when a file fails the next one carries on. On a Cloudflare block the next download waits 6 s and continues; optionally Settings → *Stop queue on Cloudflare* parks the rest instead.
 - **Speed limit:** from the **Speed limit** status-bar menu (Unlimited, 0.5–50 MB/s) or Settings → Downloads; applies to all concurrent downloads together and takes effect mid-download.
 - **Drag & drop order:** drag rows onto another row to re-order the queue (a line shows the insertion point). Dragging the same rows onto a group on the left still assigns them to it.
 - **Reorder the queue:** also while downloading: ▲/▼ in the toolbar, `Alt+↑/↓`, `Ctrl+Alt+↑/↓` for top/bottom, right-click → *Order*. Download order is the list order.

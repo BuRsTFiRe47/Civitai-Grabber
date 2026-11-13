@@ -74,7 +74,7 @@ class Engine(QObject):
         self._speed: dict[str, tuple[float, int]] = {}
         self._last_start = 0.0
         self._cooldown_until = 0.0
-        self.cf_cooldown = 15.0          # seconds the queue waits after a Cloudflare block
+        self.cf_cooldown = 6.0           # seconds the queue waits after a Cloudflare block
         self.power_mode = power.NONE     # never persisted: no surprise shutdown after a restart
         self._power_activity = False
         self._resolve_sem = threading.Semaphore(2)

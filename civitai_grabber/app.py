@@ -49,10 +49,23 @@ def _report_migration(log: logging.Logger) -> bool:
     return False
 
 
+def _set_windows_app_id() -> None:
+    """Give Windows our own taskbar identity (otherwise the window is grouped under python/the launcher)."""
+    if sys.platform != "win32":
+        return
+    try:
+        import ctypes
+        ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID("BuRsTFiRe47.CivitaiGrabber")
+    except Exception:  # noqa: BLE001 - cosmetic only
+        pass
+
+
 def main(argv: list[str] | None = None) -> int:
+    _set_windows_app_id()
     app = QApplication(argv if argv is not None else sys.argv)
     app.setApplicationName(APP_NAME)
     app.setOrganizationName("BuRsTFiRe47")
+    app.setWindowIcon(theme.app_icon())   # every window/dialog + the taskbar entry
 
     storage = Storage()
     log_buffer = setup_logging(storage.base / "logs")
