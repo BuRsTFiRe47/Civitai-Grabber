@@ -153,6 +153,8 @@ class Settings:
     verify_sha256: bool = False
     skip_existing: bool = True        # file already in the folder with the same size -> do not download
     stop_on_cloudflare: bool = False  # False: a Cloudflare block fails that file only and the queue goes on
+    minimize_to_tray: bool = False    # minimizing hides the window in the Windows notification area
+    close_to_tray: bool = False       # closing (X) hides it there instead of quitting; downloads keep running
     speed_limit_kbps: int = 0         # total download speed limit in KB/s, 0 = unlimited
     all_versions: bool = True         # a model link without ?modelVersionId adds every version of the model
     recent_folders: list = field(default_factory=list)   # recently used parent locations of group folders, newest first

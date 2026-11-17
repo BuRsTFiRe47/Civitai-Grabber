@@ -23,6 +23,7 @@ JDownloader mantığıyla çalışan, Civitai için yazılmış PySide6 indirme 
 - **Hız sınırı:** durum çubuğundaki **Hız sınırı** menüsünden (Sınırsız, 0,5–50 MB/s) ya da Ayarlar → İndirme'den ayarla; tüm eşzamanlı indirmelerin toplamına uygulanır ve indirme sürerken de değişir.
 - **Sürükle-bırak sıra:** satırları tutup başka bir satırın üstüne/altına bırakarak sırayı değiştir (çizgi ekleme yerini gösterir). Gruba atamak için aynı satırları soldaki gruba bırakmaya devam edebilirsin.
 - **Sırayı değiştir:** indirirken de satırları yukarı/aşağı taşı: araç çubuğunda ▲/▼, `Alt+↑/↓`; en üste/alta için `Ctrl+Alt+↑/↓`; sağ tık → *Sırala*. İndirme sırası listedeki sıradır.
+- **Sistem tepsisi:** Ayarlar → Genel'den *Küçültünce* ve/veya *Kapatınca* tepsiye (saatin yanındaki simgeler) gizlenebilir; indirmeler sürer. Simgeye tıkla = göster/gizle, sağ tık → Çık.
 - **Bitince kapat:** durum çubuğundaki **Bitince** menüsü: *Hiçbir şey yapma / Hazırda beklet / Kapat*. Tüm indirmeler bitince 60 sn geri sayım gösterilir, **İptal** ile vazgeçilir. Seçim her açılışta “Hiçbir şey yapma”ya döner. Windows'ta hazırda bekletme için `powercfg /hibernate on` gerekebilir; kapatma açık kaydedilmemiş uygulamalarca engellenebilir (`/f` kullanılmaz). macOS'ta “hazırda beklet” uykuya alır.
 - Koyu (varsayılan) / açık tema (KDE Breeze esinli arduvaz + mercan), Türkçe / İngilizce arayüz. Liste, gruplar ve ayarlar kapanıp açılınca korunur.
 
@@ -122,6 +123,7 @@ A PySide6 download manager for Civitai that works like JDownloader: it grabs lin
 - **Speed limit:** from the **Speed limit** status-bar menu (Unlimited, 0.5–50 MB/s) or Settings → Downloads; applies to all concurrent downloads together and takes effect mid-download.
 - **Drag & drop order:** drag rows onto another row to re-order the queue (a line shows the insertion point). Dragging the same rows onto a group on the left still assigns them to it.
 - **Reorder the queue:** also while downloading: ▲/▼ in the toolbar, `Alt+↑/↓`, `Ctrl+Alt+↑/↓` for top/bottom, right-click → *Order*. Download order is the list order.
+- **System tray:** Settings → General can hide the window in the tray (icons next to the clock) when minimized and/or closed; downloads keep running. Click the icon = show/hide, right-click → Quit.
 - **When done:** status-bar **When done** menu: *Do nothing / Hibernate / Shut down*. After all downloads finish a 60 s countdown appears, **Cancel** aborts it. The choice resets to “Do nothing” at every start. On Windows hibernation may need `powercfg /hibernate on`; shutdown can be blocked by apps with unsaved work (no `/f`). On macOS “hibernate” means sleep.
 - Dark (default) / light theme (KDE Breeze inspired: slate + coral), Turkish / English UI. List, groups and settings persist across restarts.
 

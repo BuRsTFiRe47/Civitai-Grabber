@@ -421,3 +421,69 @@ def test_cloudflare_backoff_is_short():
 def test_windows_app_id_helper_is_harmless_elsewhere():
     from civitai_grabber.app import _set_windows_app_id
     _set_windows_app_id()
+
+
+# ------------------------------------------------------------------ system tray
+def test_tray_options_roundtrip_and_default_off(qtbot):
+    from civitai_grabber.ui.dialogs import SettingsDialog
+    d = SettingsDialog(Settings())
+    qtbot.addWidget(d)
+    assert not d.min_tray.isChecked() and not d.close_tray.isChecked()
+    d.min_tray.setChecked(True)
+    d.close_tray.setChecked(True)
+    v = d.value()
+    assert v.minimize_to_tray and v.close_to_tray
+
+
+def test_close_hides_to_tray_and_quit_really_closes(env, qtbot, monkeypatch):
+    from PySide6.QtWidgets import QSystemTrayIcon
+    engine, win, server, tmp = env
+    monkeypatch.setattr(QSystemTrayIcon, "isSystemTrayAvailable", staticmethod(lambda: True))
+    monkeypatch.setattr(QSystemTrayIcon, "showMessage", lambda *a, **k: None)
+    monkeypatch.setattr(QSystemTrayIcon, "setVisible", lambda self, v: setattr(self, "_vis", v))
+    monkeypatch.setattr(QSystemTrayIcon, "isVisible", lambda self: getattr(self, "_vis", False))
+    # off by default: no tray icon, closing closes
+    win._apply_tray()
+    assert not win.tray_active()
+    engine.set_settings(Settings(**{**engine.settings.to_dict(), "close_to_tray": True}))
+    win._apply_tray()
+    assert win.tray_active()
+    win.close()
+    assert not win.isVisible() and not win._quitting                 # hidden, still alive
+    win.show_from_tray()
+    assert win.isVisible()
+    # turning the option off while hidden brings the window back
+    win.hide()
+    engine.set_settings(Settings(**{**engine.settings.to_dict(), "close_to_tray": False, "minimize_to_tray": False}))
+    win._apply_tray()
+    assert win.isVisible()
+
+
+def test_minimize_hides_to_tray_only_when_enabled(env, qtbot, monkeypatch):
+    from PySide6.QtWidgets import QSystemTrayIcon
+    engine, win, server, tmp = env
+    monkeypatch.setattr(QSystemTrayIcon, "isSystemTrayAvailable", staticmethod(lambda: True))
+    monkeypatch.setattr(QSystemTrayIcon, "showMessage", lambda *a, **k: None)
+    monkeypatch.setattr(QSystemTrayIcon, "setVisible", lambda self, v: setattr(self, "_vis", v))
+    monkeypatch.setattr(QSystemTrayIcon, "isVisible", lambda self: getattr(self, "_vis", False))
+    engine.set_settings(Settings(**{**engine.settings.to_dict(), "minimize_to_tray": True}))
+    win._apply_tray()
+    win._hide_to_tray()
+    assert not win.isVisible()
+    win._tray_toggle()
+    assert win.isVisible()
+    win._tray_toggle()
+    assert not win.isVisible()
+    win.show_from_tray()
+    # tooltip shows idle / active downloads
+    win._tray_tooltip()
+    assert "Boşta" in win.tray.toolTip()
+
+
+def test_no_tray_available_means_normal_close(env, qtbot):
+    engine, win, server, tmp = env
+    engine.set_settings(Settings(**{**engine.settings.to_dict(), "close_to_tray": True}))
+    win._apply_tray()
+    from PySide6.QtWidgets import QSystemTrayIcon
+    if not QSystemTrayIcon.isSystemTrayAvailable():
+        assert not win.tray_active()   # e.g. some Linux desktops: closing must not trap the user

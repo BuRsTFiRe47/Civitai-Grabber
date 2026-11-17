@@ -1,5 +1,12 @@
 # Changelog / Değişiklik günlüğü
 
+## 1.0.8 — 2026-11-17
+
+- **TR:** **Sistem tepsisi (isteğe bağlı):** Ayarlar → Genel'de iki seçenek: *Küçültünce tepsiye gizle* ve *Kapatınca (X) çıkma, tepsiye gizle*. Tepsideki simge uygulamayla aynıdır; üzerine gelince kaç dosyanın indiği ve toplam hız görünür, tıklayınca pencere açılıp kapanır, sağ tık → *Çık* ile tamamen çıkılır. Varsayılan: kapalı. Tepsi olmayan sistemlerde pencere normal kapanır.
+- **TR:** Uygulama, görev çubuğu ve pencere simgeleri tek kaynaktan çiziliyor; ilk açılışta simge görünmüyorsa uygulamayı yeni sürümle derleyip eski görev çubuğu kısayolunu çözüp yeniden sabitle (Windows eski simgeyi önbellekte tutar).
+- **EN:** **System tray (optional):** two options in Settings → General: *Hide in the tray when minimized* and *Hide in the tray instead of quitting when closed (X)*. The tray icon is the same as the app icon; hover shows how many files are downloading and the total speed, click shows/hides the window, right-click → *Quit* exits completely. Off by default. Without a system tray the window closes normally.
+- **EN:** App, taskbar and window icons are drawn from one source; if you still see the old icon after rebuilding, unpin the old taskbar shortcut and pin again (Windows caches icons).
+
 ## 1.0.7 — 2026-11-13
 
 - **TR:** Görev çubuğu simgesi: uygulama artık kendi simgesiyle (mercan zemin, beyaz indirme oku) görünür; exe dosyasına da gömülü (`assets/icon.ico`) ve Windows'ta kendi görev çubuğu kimliğiyle açılır, böylece diğer Python/başlatıcı pencerelerinden ayırt edilir. Simgeyi yeniden üretmek için `python tools/make_icon.py`.

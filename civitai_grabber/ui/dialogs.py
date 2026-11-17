@@ -294,6 +294,16 @@ class SettingsDialog(QDialog):
         self.monitor = QCheckBox(t("lbl.monitor"))
         self.monitor.setChecked(settings.monitor_clipboard)
         f.addRow("", self.monitor)
+        self.min_tray = QCheckBox(t("lbl.min_to_tray"))
+        self.min_tray.setChecked(settings.minimize_to_tray)
+        f.addRow("", self.min_tray)
+        self.close_tray = QCheckBox(t("lbl.close_to_tray"))
+        self.close_tray.setChecked(settings.close_to_tray)
+        f.addRow("", self.close_tray)
+        th = QLabel(t("hint.tray"))
+        th.setProperty("muted", True)
+        th.setWordWrap(True)
+        f.addRow("", th)
         tabs.addTab(gen, t("tab.general"))
 
         # --- downloads
@@ -397,6 +407,8 @@ class SettingsDialog(QDialog):
             language=self.lang.currentData(),
             theme=self.theme.currentData(),
             monitor_clipboard=self.monitor.isChecked(),
+            minimize_to_tray=self.min_tray.isChecked(),
+            close_to_tray=self.close_tray.isChecked(),
             max_concurrent=self.conc.value(),
             start_delay=self.delay.value(),
             retries=self.retries.value(),

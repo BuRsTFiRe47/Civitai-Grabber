@@ -65,6 +65,7 @@ def main(argv: list[str] | None = None) -> int:
     app = QApplication(argv if argv is not None else sys.argv)
     app.setApplicationName(APP_NAME)
     app.setOrganizationName("BuRsTFiRe47")
+    app.setQuitOnLastWindowClosed(False)  # the window may be hidden in the tray; MainWindow.closeEvent quits
     app.setWindowIcon(theme.app_icon())   # every window/dialog + the taskbar entry
 
     storage = Storage()

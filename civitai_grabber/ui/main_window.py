@@ -5,7 +5,7 @@ import dataclasses
 from pathlib import Path
 from typing import Optional
 
-from PySide6.QtCore import QByteArray, QModelIndex, Qt, QTimer, QUrl, Signal
+from PySide6.QtCore import QByteArray, QEvent, QModelIndex, Qt, QTimer, QUrl, Signal
 from PySide6.QtGui import QAction, QDesktopServices, QGuiApplication, QKeySequence
 from PySide6.QtWidgets import (
     QAbstractItemView,
@@ -21,6 +21,7 @@ from PySide6.QtWidgets import (
     QMessageBox,
     QPushButton,
     QSizePolicy,
+    QSystemTrayIcon,
     QSplitter,
     QStackedWidget,
     QToolBar,
@@ -33,7 +34,7 @@ from civitai_grabber import APP_NAME
 from civitai_grabber.core import power
 from civitai_grabber.core.engine import Engine
 from civitai_grabber.core.links import extract_links
-from civitai_grabber.core.models import ERROR, PAUSED, READY, RESOLVING
+from civitai_grabber.core.models import DOWNLOADING, ERROR, PAUSED, READY, RESOLVING
 import logging
 from civitai_grabber.i18n import set_language, t
 from civitai_grabber.core.logsetup import BufferHandler
@@ -105,6 +106,8 @@ class MainWindow(QMainWindow):
         self.engine = engine
         self._log_buffer = log_buffer
         self.setWindowIcon(theme.app_icon())
+        self._quitting = False
+        self._tray_told = False
         self.resize(1440, 780)
         self.setAcceptDrops(True)
 
@@ -115,6 +118,7 @@ class MainWindow(QMainWindow):
         self._build_actions()
         self._build_ui()
         self._apply_texts()
+        self._setup_tray()
 
         engine.groupsChanged.connect(self._refresh_groups_soon)
         engine.message.connect(self._on_message)
@@ -753,6 +757,7 @@ class MainWindow(QMainWindow):
         if new.language != old.language:
             set_language(new.language)
         self._apply_texts()
+        self._apply_tray()
 
     def _on_message(self, code: str, detail: str):
         self.statusBar().showMessage(t(f"msg.{code}", detail=detail), 8000)
@@ -769,8 +774,89 @@ class MainWindow(QMainWindow):
             self.lbl_key.setStyleSheet(f"color: {theme.colors()['warn']};")
 
     # ------------------------------------------------------------------ closing
+    # ------------------------------------------------------------------ system tray
+    def _setup_tray(self):
+        self.tray = QSystemTrayIcon(theme.app_icon(), self)
+        menu = QMenu(self)
+        self.a_tray_show = menu.addAction("", self._tray_toggle)
+        menu.addSeparator()
+        self.a_tray_quit = menu.addAction("", self._quit_app)
+        self.tray.setContextMenu(menu)
+        self._tray_menu = menu
+        self.tray.activated.connect(self._tray_activated)
+        self._tray_timer = QTimer(self)
+        self._tray_timer.setInterval(1000)
+        self._tray_timer.timeout.connect(self._tray_tooltip)
+        self._apply_tray()
+
+    def tray_wanted(self) -> bool:
+        s = self.engine.settings
+        return bool(s.minimize_to_tray or s.close_to_tray)
+
+    def tray_active(self) -> bool:
+        return self.tray_wanted() and QSystemTrayIcon.isSystemTrayAvailable() and self.tray.isVisible()
+
+    def _apply_tray(self):
+        self.a_tray_show.setText(t("tray.show"))
+        self.a_tray_quit.setText(t("tray.quit"))
+        want = self.tray_wanted() and QSystemTrayIcon.isSystemTrayAvailable()
+        self.tray.setVisible(want)
+        if want:
+            self._tray_timer.start()
+            self._tray_tooltip()
+        else:
+            self._tray_timer.stop()
+            if not self.isVisible():
+                self.show_from_tray()  # never leave the window hidden without a tray icon
+
+    def _tray_tooltip(self):
+        active = [i for i in self.engine.items.values() if i.state == DOWNLOADING]
+        if active:
+            speed = format_size(sum(i.speed for i in active))
+            self.tray.setToolTip(f"{APP_NAME} — {t('tray.active', n=len(active), speed=speed)}")
+        else:
+            self.tray.setToolTip(f"{APP_NAME} — {t('tray.idle')}")
+
+    def show_from_tray(self):
+        self.setWindowState(self.windowState() & ~Qt.WindowMinimized)
+        self.show()
+        self.raise_()
+        self.activateWindow()
+
+    def _tray_toggle(self):
+        if self.isVisible() and not self.isMinimized():
+            self.hide()
+        else:
+            self.show_from_tray()
+
+    def _tray_activated(self, reason):
+        if reason in (QSystemTrayIcon.Trigger, QSystemTrayIcon.DoubleClick):
+            self._tray_toggle()
+
+    def _hide_to_tray(self):
+        self.hide()
+        if not self._tray_told:
+            self._tray_told = True
+            self.tray.showMessage(APP_NAME, t("tray.hidden"), QSystemTrayIcon.Information, 4000)
+
+    def _quit_app(self):
+        self._quitting = True
+        self.close()
+
+    def changeEvent(self, e):
+        super().changeEvent(e)
+        if (e.type() == QEvent.WindowStateChange and self.isMinimized() and self.engine.settings.minimize_to_tray
+                and self.tray_active()):
+            QTimer.singleShot(0, self._hide_to_tray)
+
     def closeEvent(self, e):
+        if not self._quitting and self.engine.settings.close_to_tray and self.tray_active():
+            e.ignore()
+            self._hide_to_tray()
+            return
+        self.tray.hide()
         s = dataclasses.replace(self.engine.settings, geometry=bytes(self.saveGeometry().toBase64()).decode())
         self.engine.set_settings(s)
         self.engine.shutdown()
         e.accept()
+        QApplication.instance().quit()
