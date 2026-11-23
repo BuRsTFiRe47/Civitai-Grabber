@@ -5,7 +5,7 @@ import dataclasses
 from pathlib import Path
 from typing import Optional
 
-from PySide6.QtCore import QByteArray, QEvent, QModelIndex, Qt, QTimer, QUrl, Signal
+from PySide6.QtCore import QByteArray, QEvent, QMimeData, QModelIndex, Qt, QTimer, QUrl, Signal
 from PySide6.QtGui import QAction, QDesktopServices, QGuiApplication, QKeySequence
 from PySide6.QtWidgets import (
     QAbstractItemView,
@@ -68,29 +68,66 @@ NONE = "__none__"
 class GroupList(QListWidget):
     """Group list that accepts rows dragged from the link table."""
 
-    itemsDropped = Signal(list, str)  # ids, group token
+    itemsDropped = Signal(list, str)           # ids, group token
+    groupMoved = Signal(str, object, bool)     # group id, target group id (None = end), insert after target
+
+    GROUP_MIME = "application/x-civitai-grabber-group"
 
     def __init__(self, parent=None):
         super().__init__(parent)
         self.setAcceptDrops(True)
-        self.setDragDropMode(QAbstractItemView.DropOnly)
-        self.setDropIndicatorShown(False)
+        self.setDragEnabled(True)
+        self.setDragDropMode(QAbstractItemView.DragDrop)
+        self.setDefaultDropAction(Qt.MoveAction)
+        self.setDropIndicatorShown(True)
+
+    def mimeTypes(self):
+        return [self.GROUP_MIME, MIME]
+
+    def mimeData(self, items):
+        md = QMimeData()
+        real = [i.data(Qt.UserRole) for i in items if i.data(Qt.UserRole) not in (ALL, NONE)]
+        md.setData(self.GROUP_MIME, "\n".join(real).encode())
+        return md
+
+    def drop_slot(self, pos) -> tuple[Optional[str], bool]:
+        """(target group id, after?) for a group dragged to viewport position `pos`; the two fixed rows count as 'top'."""
+        it = self.itemAt(pos)
+        if it is None:
+            return None, False
+        token = it.data(Qt.UserRole)
+        if token in (ALL, NONE):
+            first = next((self.item(r).data(Qt.UserRole) for r in range(self.count())
+                          if self.item(r).data(Qt.UserRole) not in (ALL, NONE)), None)
+            return first, False
+        return token, pos.y() >= self.visualItemRect(it).center().y()
 
     def _target(self, event) -> Optional[QListWidgetItem]:
         it = self.itemAt(event.position().toPoint())
         return it if it is not None and it.data(Qt.UserRole) != ALL else None
 
     def dragEnterEvent(self, e):
-        if e.mimeData().hasFormat(MIME):
+        if e.mimeData().hasFormat(MIME) or e.mimeData().hasFormat(self.GROUP_MIME):
             e.acceptProposedAction()
 
     def dragMoveEvent(self, e):
-        if e.mimeData().hasFormat(MIME) and self._target(e) is not None:
+        if e.mimeData().hasFormat(self.GROUP_MIME):
+            e.acceptProposedAction()
+            super().dragMoveEvent(e)
+            e.acceptProposedAction()
+        elif e.mimeData().hasFormat(MIME) and self._target(e) is not None:
             e.acceptProposedAction()
         else:
             e.ignore()
 
     def dropEvent(self, e):
+        if e.mimeData().hasFormat(self.GROUP_MIME):
+            gid = bytes(e.mimeData().data(self.GROUP_MIME)).decode().split("\n")[0]
+            target, after = self.drop_slot(e.position().toPoint())
+            e.acceptProposedAction()
+            if gid:
+                self.groupMoved.emit(gid, target, after)
+            return
         it = self._target(e)
         if it is None or not e.mimeData().hasFormat(MIME):
             e.ignore()
@@ -219,6 +256,7 @@ class MainWindow(QMainWindow):
         self.group_list = GroupList()
         self.group_list.currentItemChanged.connect(self._group_selected_in_list)
         self.group_list.itemsDropped.connect(self._on_drop)
+        self.group_list.groupMoved.connect(lambda gid, tgt, after: self.engine.move_group(gid, tgt, after))
         self.group_list.itemDoubleClicked.connect(lambda *_: self._edit_group())
         self.group_list.setContextMenuPolicy(Qt.CustomContextMenu)
         self.group_list.customContextMenuRequested.connect(self._group_menu)
@@ -226,15 +264,26 @@ class MainWindow(QMainWindow):
         self.b_new = QPushButton()
         self.b_edit = QPushButton()
         self.b_del = QPushButton()
+        self.b_gup = QPushButton("▲")
+        self.b_gdown = QPushButton("▼")
+        self.b_gsort = QPushButton("A→Z")
         for b in (self.b_new, self.b_edit, self.b_del):
             b.setAutoDefault(False)
             gb.addWidget(b)
+        gb2 = QHBoxLayout()
+        for b in (self.b_gup, self.b_gdown, self.b_gsort):
+            b.setAutoDefault(False)
+            gb2.addWidget(b)
+        self.b_gup.clicked.connect(lambda: self._shift_group("up"))
+        self.b_gdown.clicked.connect(lambda: self._shift_group("down"))
+        self.b_gsort.clicked.connect(self.engine.sort_groups)
         self.b_new.clicked.connect(self._new_group)
         self.b_edit.clicked.connect(self._edit_group)
         self.b_del.clicked.connect(self._delete_group)
         ll.addWidget(self.lbl_groups)
         ll.addWidget(self.group_list, 1)
         ll.addLayout(gb)
+        ll.addLayout(gb2)
         left.setMinimumWidth(220)
         left.setMaximumWidth(380)
 
@@ -358,6 +407,9 @@ class MainWindow(QMainWindow):
         self.log_panel.retranslate()
         self.lbl_groups.setText(t("lbl.groups"))
         self.b_new.setText(t("btn.group_new"))
+        self.b_gup.setToolTip(t("tip.group_up"))
+        self.b_gdown.setToolTip(t("tip.group_down"))
+        self.b_gsort.setToolTip(t("tip.group_sort"))
         self.b_edit.setText(t("btn.group_edit"))
         self.b_del.setText(t("btn.group_delete"))
         self.empty.setText(t("empty.hint"))
@@ -436,6 +488,11 @@ class MainWindow(QMainWindow):
     def _update_group_buttons(self):
         real = self._current_token() not in (ALL, NONE)
         self.b_edit.setEnabled(real)
+        ids = [g.id for g in self.engine.groups]
+        cur = self._current_token()
+        self.b_gup.setEnabled(real and cur in ids and ids.index(cur) > 0)
+        self.b_gdown.setEnabled(real and cur in ids and ids.index(cur) < len(ids) - 1)
+        self.b_gsort.setEnabled(len(ids) > 1)
         self.b_del.setEnabled(real)
 
     def _new_group(self):
@@ -467,9 +524,20 @@ class MainWindow(QMainWindow):
             m.addAction(t("btn.group_edit"), self._edit_group)
             m.addAction(t("menu.open_folder"), self._open_group_folder)
             m.addAction(t("act.start_view"), lambda: self._start(self._view_ids()))
+            om = m.addMenu(t("menu.order"))
+            for how, key in (("top", "menu.top"), ("up", "menu.up"), ("down", "menu.down"), ("bottom", "menu.bottom")):
+                om.addAction(t(key), lambda h=how: self._shift_group(h))
+            m.addAction(t("tip.group_sort"), self.engine.sort_groups)
             m.addSeparator()
             m.addAction(t("btn.group_delete"), self._delete_group)
+        else:
+            m.addAction(t("tip.group_sort"), self.engine.sort_groups)
         m.exec(self.group_list.mapToGlobal(pos))
+
+    def _shift_group(self, how: str):
+        cur = self._current_token()
+        if cur not in (ALL, NONE):
+            self.engine.shift_group(cur, how)
 
     def _open_group_folder(self):
         g = self.engine.group(self._current_token())

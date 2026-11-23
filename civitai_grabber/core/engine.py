@@ -178,6 +178,52 @@ class Engine(QObject):
                     self.itemChanged.emit(it.id)
             self._dirty()
 
+    def move_group(self, gid: str, target_gid: Optional[str], after: bool = False) -> bool:
+        """Put group `gid` before/after `target_gid`; target None = at the end."""
+        g = self.group(gid)
+        if g is None or gid == target_gid or (target_gid is not None and self.group(target_gid) is None):
+            return False
+        rest = [x for x in self.groups if x.id != gid]
+        at = len(rest) if target_gid is None else next(i for i, x in enumerate(rest) if x.id == target_gid) + (1 if after else 0)
+        new = rest[:at] + [g] + rest[at:]
+        if [x.id for x in new] == [x.id for x in self.groups]:
+            return False
+        self.groups = new
+        self.groupsChanged.emit()
+        self._dirty()
+        return True
+
+    def shift_group(self, gid: str, how: str) -> bool:
+        """how: up | down | top | bottom."""
+        ids = [g.id for g in self.groups]
+        if gid not in ids:
+            return False
+        i = ids.index(gid)
+        if how == "top":
+            return self.move_group(gid, ids[0], False) if i > 0 else False
+        if how == "bottom":
+            return self.move_group(gid, None) if i < len(ids) - 1 else False
+        if how == "up":
+            return self.move_group(gid, ids[i - 1], False) if i > 0 else False
+        if how == "down":
+            return self.move_group(gid, ids[i + 1], True) if i < len(ids) - 1 else False
+        return False
+
+    def sort_groups(self) -> bool:
+        """A -> Z by name (case-insensitive, numbers in natural order: 'x2' before 'x10')."""
+        import re
+
+        def key(g: Group):
+            return [int(p) if p.isdigit() else p for p in re.split(r"(\d+)", g.name.casefold())]
+
+        new = sorted(self.groups, key=key)
+        if [g.id for g in new] == [g.id for g in self.groups]:
+            return False
+        self.groups = new
+        self.groupsChanged.emit()
+        self._dirty()
+        return True
+
     def delete_group(self, gid: str) -> None:
         self.groups = [g for g in self.groups if g.id != gid]
         for it in self.items.values():

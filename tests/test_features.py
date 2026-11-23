@@ -487,3 +487,115 @@ def test_no_tray_available_means_normal_close(env, qtbot):
     from PySide6.QtWidgets import QSystemTrayIcon
     if not QSystemTrayIcon.isSystemTrayAvailable():
         assert not win.tray_active()   # e.g. some Linux desktops: closing must not trap the user
+
+
+# ------------------------------------------------------------------ re-ordering groups
+def _names(engine):
+    return [g.name for g in engine.groups]
+
+
+def _mk_groups(engine, tmp, *names):
+    return [engine.add_group(n, str(tmp / n)) for n in names]
+
+
+def test_engine_group_order_api(qtbot, tmp_path):
+    e = bare_engine(qtbot, tmp_path, "a")
+    a, b, c, d = _mk_groups(e, tmp_path, "a", "b", "c", "d")
+    assert e.move_group(d.id, a.id) and _names(e) == list("dabc")
+    assert e.move_group(d.id, b.id, after=True) and _names(e) == list("abdc")
+    assert e.move_group(a.id, None) and _names(e) == list("bdca")
+    assert not e.move_group(a.id, a.id) and not e.move_group("nope", None) and not e.move_group(a.id, "nope")
+    assert not e.move_group(a.id, None)                                # already last
+    assert e.shift_group(a.id, "up") and _names(e) == list("bdac")
+    assert e.shift_group(a.id, "down") and _names(e) == list("bdca")
+    assert e.shift_group(a.id, "top") and _names(e) == list("abdc")
+    assert not e.shift_group(a.id, "top") and not e.shift_group(a.id, "up")
+    assert e.shift_group(a.id, "bottom") and _names(e) == list("bdca")
+    assert not e.shift_group(a.id, "down")
+
+
+def test_sort_groups_a_to_z_is_natural_and_case_insensitive(qtbot, tmp_path):
+    e = bare_engine(qtbot, tmp_path, "a")
+    _mk_groups(e, tmp_path, "zeta", "Alpha", "pack 10", "pack 2", "beta")
+    assert e.sort_groups()
+    assert _names(e) == ["Alpha", "beta", "pack 2", "pack 10", "zeta"]
+    assert not e.sort_groups()                                          # already sorted
+
+
+def test_group_order_is_saved(env, qtbot):
+    engine, win, server, tmp = env
+    a, b, c = _mk_groups(engine, tmp, "a", "b", "c")
+    engine.move_group(c.id, a.id)
+    engine.save_now()
+    from civitai_grabber.core.storage import Storage
+    groups, _ = Storage(tmp / "cfg").load_state()
+    assert [g.name for g in groups] == list("cab")
+
+
+def _group_rows(win):
+    return [win.group_list.item(r).data(Qt.UserRole) for r in range(win.group_list.count())]
+
+
+def test_group_list_drag_drop_and_buttons(env, qtbot):
+    from PySide6.QtCore import QMimeData, QPointF
+    from PySide6.QtGui import QDropEvent
+    from civitai_grabber.ui.main_window import ALL, NONE, GroupList
+    engine, win, server, tmp = env
+    a, b, c = _mk_groups(engine, tmp, "a", "b", "c")
+    qtbot.waitUntil(lambda: win.group_list.count() == 5)
+    assert _group_rows(win) == [ALL, NONE, a.id, b.id, c.id]
+    gl = win.group_list
+    # group rows can be dragged, the two fixed rows cannot
+    assert gl.item(2).flags() & Qt.ItemIsDragEnabled or gl.dragEnabled()
+    md = gl.mimeData([gl.item(4)])
+    assert bytes(md.data(GroupList.GROUP_MIME)).decode() == c.id
+    assert bytes(gl.mimeData([gl.item(0), gl.item(1)]).data(GroupList.GROUP_MIME)) == b""
+
+    def drop(gid, row, lower=False):
+        data = QMimeData()
+        data.setData(GroupList.GROUP_MIME, gid.encode())
+        rect = gl.visualItemRect(gl.item(row)) if row is not None else None
+        pos = QPointF(20, (rect.bottom() - 3 if lower else rect.top() + 3)) if rect else QPointF(10, gl.viewport().height() - 2)
+        gl.dropEvent(QDropEvent(pos, Qt.MoveAction, data, Qt.LeftButton, Qt.NoModifier))
+
+    drop(c.id, 2)                                    # onto the top half of the first group
+    assert _names(engine) == list("cab")
+    qtbot.waitUntil(lambda: _group_rows(win)[2:] == [c.id, a.id, b.id])
+    drop(c.id, 4, lower=True)                        # below the last one
+    assert _names(engine) == list("abc")
+    qtbot.waitUntil(lambda: _group_rows(win)[2:] == [a.id, b.id, c.id])
+    drop(a.id, 0)                                    # dropped on the 'All' row -> becomes first group (no-op here)
+    assert _names(engine) == list("abc")
+    drop(c.id, 1)                                    # on 'Ungrouped' -> first group
+    assert _names(engine) == list("cab")
+    qtbot.waitUntil(lambda: _group_rows(win)[2:] == [c.id, a.id, b.id])
+    drop(c.id, None)                                 # empty area -> end
+    assert _names(engine) == list("abc")
+
+    # buttons act on the selected group and keep it selected
+    qtbot.waitUntil(lambda: _group_rows(win)[2:] == [a.id, b.id, c.id])
+    gl.setCurrentRow(4)                              # c
+    assert win.b_gup.isEnabled() and not win.b_gdown.isEnabled()
+    win.b_gup.click()
+    assert _names(engine) == list("acb")
+    qtbot.waitUntil(lambda: win._current_token() == c.id and gl.currentRow() == 3)
+    win.b_gsort.click()
+    assert _names(engine) == list("abc")
+    qtbot.waitUntil(lambda: win._current_token() == c.id)
+    gl.setCurrentRow(0)
+    assert not win.b_gup.isEnabled() and not win.b_gdown.isEnabled() and win.b_gsort.isEnabled()
+
+
+def test_table_rows_still_drop_onto_groups_after_group_dragging_was_added(env, qtbot):
+    from PySide6.QtCore import QMimeData, QPointF
+    from PySide6.QtGui import QDropEvent
+    engine, win, server, tmp = env
+    add(engine, server, 101)
+    wait_state(qtbot, engine, "ready")
+    g, = _mk_groups(engine, tmp, "g")
+    qtbot.waitUntil(lambda: win.group_list.count() == 3)
+    data = QMimeData()
+    data.setData(MIME, engine.order[0].encode())
+    rect = win.group_list.visualItemRect(win.group_list.item(2))
+    win.group_list.dropEvent(QDropEvent(QPointF(20, rect.center().y()), Qt.MoveAction, data, Qt.LeftButton, Qt.NoModifier))
+    assert engine.items[engine.order[0]].group_id == g.id

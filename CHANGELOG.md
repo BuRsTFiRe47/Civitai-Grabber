@@ -1,5 +1,11 @@
 # Changelog / Değişiklik günlüğü
 
+## 1.0.9 — 2026-11-23
+
+- **TR:** **Grupları sırala:** gruplar sürükle-bırakla yukarı/aşağı taşınır (çizgi ekleme yerini gösterir); sol paneldeki **▲ ▼** düğmeleri seçili grubu bir basamak taşır; **A→Z** tüm grupları ada göre dizer (büyük/küçük harf fark etmez, `Pack 2` `Pack 10`'dan önce gelir). Sağ tık menüsünde *Sırala* alt menüsü (en üste/yukarı/aşağı/en alta) ve A→Z de var. Sıra kaydedilir. Satırları gruba bırakmak eskisi gibi çalışır.
+- **EN:** **Re-order groups:** drag & drop groups up/down (a line shows the insertion point); the **▲ ▼** buttons under the group list move the selected group one step; **A→Z** sorts all groups by name (case-insensitive, natural numbers: `Pack 2` before `Pack 10`). The right-click menu has an *Order* submenu (top/up/down/bottom) and A→Z too. The order is saved. Dropping rows onto a group still works as before.
+- Includes everything from 1.0.8 (system tray options) if it was not published yet.
+
 ## 1.0.8 — 2026-11-17
 
 - **TR:** **Sistem tepsisi (isteğe bağlı):** Ayarlar → Genel'de iki seçenek: *Küçültünce tepsiye gizle* ve *Kapatınca (X) çıkma, tepsiye gizle*. Tepsideki simge uygulamayla aynıdır; üzerine gelince kaç dosyanın indiği ve toplam hız görünür, tıklayınca pencere açılıp kapanır, sağ tık → *Çık* ile tamamen çıkılır. Varsayılan: kapalı. Tepsi olmayan sistemlerde pencere normal kapanır.
